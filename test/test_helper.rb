@@ -19,7 +19,7 @@ require 'minitest/autorun'
 module TestHelpers
   class ConfigStub
     attr_accessor :primary_host, :standby_hosts, :version, :primary, :standbys, :environment, :secrets_config, :ssh_key, :user, :postgres_user,
-                  :pgbouncer_user, :app_user, :repmgr_user, :repmgr_database
+                  :pgbouncer_user, :app_user, :app_database, :repmgr_user, :repmgr_database
 
     def initialize(attrs = {})
       @primary_host = attrs[:primary_host]
@@ -34,6 +34,7 @@ module TestHelpers
       @postgres_user = attrs[:postgres_user] || 'postgres'
       @pgbouncer_user = attrs[:pgbouncer_user] || 'pgbouncer'
       @app_user = attrs[:app_user] || 'app'
+      @app_database = attrs[:app_database] || 'app_production'
       @repmgr_user = attrs[:repmgr_user] || 'repmgr'
       @repmgr_database = attrs[:repmgr_database] || 'repmgr'
       @component_enabled_override = attrs.fetch(:component_enabled?, false)

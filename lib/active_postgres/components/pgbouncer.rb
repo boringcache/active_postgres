@@ -39,6 +39,7 @@ module ActivePostgres
 
         # Merge: user config overrides calculated settings
         pgbouncer_config = optimal_pool.merge(user_config)
+        _ = pgbouncer_config # Used in ERB template
 
         puts "  Calculated pool settings for max_connections=#{max_connections}"
 
@@ -83,27 +84,47 @@ module ActivePostgres
         app_user = config.app_user
 
         ssh_executor.execute_on_host(host) do
-          # Get password hashes for postgres superuser and app user from PostgreSQL
           userlist_entries = []
 
-          # Add postgres superuser (for admin access)
           begin
-            # Use dollar quoting to avoid shell escaping issues
-            query = "SELECT concat('\"', rolname, '\" \"', rolpassword, '\"') FROM pg_authid WHERE rolname = '#{postgres_user}'"
-            postgres_hash = capture(:sudo, '-u', postgres_user, 'psql', '-t', '-c', "'#{query}'").strip
-            userlist_entries << postgres_hash if postgres_hash && !postgres_hash.empty?
+            sql = <<~SQL.strip
+              SELECT concat('"', rolname, '" "', rolpassword, '"')
+              FROM pg_authid
+              WHERE rolname = '#{postgres_user}'
+            SQL
+
+            upload! StringIO.new(sql), '/tmp/get_user_hash.sql'
+            postgres_hash = capture(:sudo, '-u', postgres_user, 'psql', '-t', '-f', '/tmp/get_user_hash.sql').strip
+            execute :rm, '-f', '/tmp/get_user_hash.sql'
+
+            if postgres_hash && !postgres_hash.empty?
+              userlist_entries << postgres_hash
+              puts "  ✓ Added #{postgres_user} to PgBouncer userlist"
+            end
           rescue StandardError => e
-            warn "  Warning: Could not get password hash for #{postgres_user}: #{e.message}"
+            warn "  ⚠ Warning: Could not get password hash for #{postgres_user}: #{e.message}"
           end
 
-          # Add app user if different from postgres user
           if app_user && app_user != postgres_user
             begin
-              query = "SELECT concat('\"', rolname, '\" \"', rolpassword, '\"') FROM pg_authid WHERE rolname = '#{app_user}'"
-              app_hash = capture(:sudo, '-u', postgres_user, 'psql', '-t', '-c', "'#{query}'").strip
-              userlist_entries << app_hash if app_hash && !app_hash.empty?
+              sql = <<~SQL.strip
+                SELECT concat('"', rolname, '" "', rolpassword, '"')
+                FROM pg_authid
+                WHERE rolname = '#{app_user}'
+              SQL
+
+              upload! StringIO.new(sql), '/tmp/get_user_hash.sql'
+              app_hash = capture(:sudo, '-u', postgres_user, 'psql', '-t', '-f', '/tmp/get_user_hash.sql').strip
+              execute :rm, '-f', '/tmp/get_user_hash.sql'
+
+              if app_hash && !app_hash.empty?
+                userlist_entries << app_hash
+                puts "  ✓ Added #{app_user} to PgBouncer userlist"
+              else
+                warn "  ⚠ User #{app_user} not found in PostgreSQL - create it first"
+              end
             rescue StandardError => e
-              warn "  Warning: Could not get password hash for #{app_user}: #{e.message}"
+              warn "  ⚠ Warning: Could not get password hash for #{app_user}: #{e.message}"
             end
           end
 

@@ -94,7 +94,10 @@ module ActivePostgres
         secrets_obj = secrets
         repmgr_user = config.repmgr_user
         repmgr_db = config.repmgr_database
-        postgres_user = config.postgres_user
+
+        # Variables used in ERB templates via binding
+        _ = repmgr_config
+        _ = secrets_obj
 
         ssh_executor.recreate_cluster(host, version)
 
@@ -107,6 +110,7 @@ module ActivePostgres
           # Reuse Core component's tuning logic
         end
         pg_config = component_config[:postgresql] || {}
+        _ = pg_config # Used in ERB template
 
         upload_template(host, 'postgresql.conf.erb', "/etc/postgresql/#{version}/main/postgresql.conf", binding,
                         owner: 'postgres:postgres')
@@ -202,11 +206,13 @@ module ActivePostgres
         repmgr_db = config.repmgr_database
         postgres_user = config.postgres_user
 
+        # Variables used in ERB templates via binding
+        _ = host
+        _ = repmgr_config
+        _ = secrets_obj
+
         node_id = config.standby_hosts.index(standby_host) + 2
         repmgr_password = normalize_repmgr_password(secrets_obj.resolve('repmgr_password'))
-
-        standby_config = config.standby_config_for(standby_host)
-        standby_label = standby_config&.dig('label') || "standby-#{standby_host.split('.').first}"
 
         ensure_primary_registered
 
@@ -306,6 +312,7 @@ module ActivePostgres
         if config.component_enabled?(:performance_tuning)
         end
         pg_config = component_config[:postgresql] || {}
+        _ = pg_config # Used in ERB template
 
         ssh_executor.execute_on_host(standby_host) do
           # Create config directory if it doesn't exist

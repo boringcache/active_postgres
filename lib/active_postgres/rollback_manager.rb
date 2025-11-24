@@ -114,7 +114,10 @@ module ActivePostgres
     def register_database_removal(host, database_name)
       postgres_user = config.postgres_user
       register("Drop database #{database_name} on #{host}", host: host) do
-        execute :sudo, '-u', postgres_user, 'psql', '-c', "DROP DATABASE IF EXISTS #{database_name};"
+        sql = "DROP DATABASE IF EXISTS #{database_name};"
+        upload! StringIO.new(sql), '/tmp/drop_database.sql'
+        execute :sudo, '-u', postgres_user, 'psql', '-f', '/tmp/drop_database.sql'
+        execute :rm, '-f', '/tmp/drop_database.sql'
       rescue StandardError
         nil
       end
@@ -123,7 +126,10 @@ module ActivePostgres
     def register_postgres_user_removal(host, username)
       postgres_user = config.postgres_user
       register("Drop PostgreSQL user #{username} on #{host}", host: host) do
-        execute :sudo, '-u', postgres_user, 'psql', '-c', "DROP USER IF EXISTS #{username};"
+        sql = "DROP USER IF EXISTS #{username};"
+        upload! StringIO.new(sql), '/tmp/drop_user.sql'
+        execute :sudo, '-u', postgres_user, 'psql', '-f', '/tmp/drop_user.sql'
+        execute :rm, '-f', '/tmp/drop_user.sql'
       rescue StandardError
         nil
       end

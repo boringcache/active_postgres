@@ -60,6 +60,7 @@ module ActivePostgres
 
         pgbackrest_config = config.component_config(:pgbackrest)
         postgres_user = config.postgres_user
+        _ = pgbackrest_config # Used in ERB template
 
         # Install package
         ssh_executor.execute_on_host(host) do

@@ -364,16 +364,26 @@ namespace :postgres do
         userlist_entries = []
 
         users.each do |user|
-          query = "SELECT concat('\"', rolname, '\" \"', rolpassword, '\"') FROM pg_authid WHERE rolname = '#{user}'"
-          user_hash = capture(:sudo, '-u', postgres_user, 'psql', '-t', '-c', "'#{query}'").strip
-          if user_hash && !user_hash.empty?
-            userlist_entries << user_hash
-            puts "  ✓ Added #{user}"
-          else
-            warn "  ⚠ User #{user} not found in PostgreSQL"
+          begin
+            sql = <<~SQL.strip
+              SELECT concat('"', rolname, '" "', rolpassword, '"')
+              FROM pg_authid
+              WHERE rolname = '#{user}'
+            SQL
+
+            upload! StringIO.new(sql), '/tmp/get_user_hash.sql'
+            user_hash = capture(:sudo, '-u', postgres_user, 'psql', '-t', '-f', '/tmp/get_user_hash.sql').strip
+            execute :rm, '-f', '/tmp/get_user_hash.sql'
+
+            if user_hash && !user_hash.empty?
+              userlist_entries << user_hash
+              puts "  ✓ Added #{user}"
+            else
+              warn "  ⚠ User #{user} not found in PostgreSQL"
+            end
+          rescue StandardError => e
+            warn "  ✗ Error getting hash for #{user}: #{e.message}"
           end
-        rescue StandardError => e
-          warn "  ✗ Error getting hash for #{user}: #{e.message}"
         end
 
         if userlist_entries.any?

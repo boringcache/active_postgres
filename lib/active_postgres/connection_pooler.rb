@@ -315,23 +315,39 @@ module ActivePostgres
       pgbouncer_user = config.pgbouncer_user
 
       @ssh_executor.execute_on_host(host) do
-        # Generate userlist.txt from PostgreSQL users
-        userlist = capture(:sudo, '-u', postgres_user, 'psql', '-t', '-c',
-                           "'SELECT concat('\"', usename, '\" \"', passwd, '\"') " \
-                           "FROM pg_shadow WHERE passwd IS NOT NULL;'").strip
+        sql = <<~SQL.strip
+          SELECT concat('"', usename, '" "', passwd, '"')
+          FROM pg_shadow
+          WHERE passwd IS NOT NULL
+        SQL
 
-        # Add pgbouncer user if not exists
+        upload! StringIO.new(sql), '/tmp/get_all_users.sql'
+        userlist = capture(:sudo, '-u', postgres_user, 'psql', '-t', '-f', '/tmp/get_all_users.sql').strip
+        execute :rm, '-f', '/tmp/get_all_users.sql'
+
         unless userlist.include?(pgbouncer_user)
-          # Create pgbouncer user in PostgreSQL
           pgbouncer_pass = SecureRandom.hex(16)
-          execute :sudo, '-u', postgres_user, 'psql', '-c',
-                  "'CREATE USER #{pgbouncer_user} WITH PASSWORD '#{pgbouncer_pass}';"
-          execute :sudo, '-u', postgres_user, 'psql', '-c',
-                  "'GRANT CONNECT ON DATABASE postgres TO #{pgbouncer_user};'"
+          escaped_pass = pgbouncer_pass.gsub("'", "''")
 
-          # Get the encrypted password
-          encrypted = capture(:sudo, '-u', postgres_user, 'psql', '-t', '-c',
-                              "'SELECT passwd FROM pg_shadow WHERE usename='#{pgbouncer_user}';'").strip
+          sql = [
+            "CREATE USER #{pgbouncer_user} WITH PASSWORD '#{escaped_pass}';",
+            "GRANT CONNECT ON DATABASE postgres TO #{pgbouncer_user};"
+          ].join("\n")
+
+          upload! StringIO.new(sql), '/tmp/create_pgbouncer_user.sql'
+          execute :sudo, '-u', postgres_user, 'psql', '-f', '/tmp/create_pgbouncer_user.sql'
+          execute :rm, '-f', '/tmp/create_pgbouncer_user.sql'
+
+          sql = <<~SQL.strip
+            SELECT passwd
+            FROM pg_shadow
+            WHERE usename = '#{pgbouncer_user}'
+          SQL
+
+          upload! StringIO.new(sql), '/tmp/get_pgbouncer_pass.sql'
+          encrypted = capture(:sudo, '-u', postgres_user, 'psql', '-t', '-f', '/tmp/get_pgbouncer_pass.sql').strip
+          execute :rm, '-f', '/tmp/get_pgbouncer_pass.sql'
+
           userlist += "\n\"#{pgbouncer_user}\" \"#{encrypted}\""
         end
 
