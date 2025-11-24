@@ -1,0 +1,55 @@
+[databases]
+* = host=<%= pgbouncer_config[:database_host] || '127.0.0.1' %> port=<%= pgbouncer_config[:database_port] || 5432 %>
+
+[pgbouncer]
+# Network settings
+listen_port = <%= pgbouncer_config[:listen_port] || 6432 %>
+listen_addr = <%= pgbouncer_config[:listen_addr] || '*' %>
+unix_socket_dir = <%= pgbouncer_config[:unix_socket_dir] || '/var/run/postgresql' %>
+
+# Authentication
+auth_type = <%= pgbouncer_config[:auth_type] || 'scram-sha-256' %>
+auth_file = <%= pgbouncer_config[:auth_file] || '/etc/pgbouncer/userlist.txt' %>
+
+# Pool settings (automatically calculated based on PostgreSQL max_connections)
+pool_mode = <%= pgbouncer_config[:pool_mode] || 'transaction' %>
+max_client_conn = <%= pgbouncer_config[:max_client_conn] || 1000 %>
+default_pool_size = <%= pgbouncer_config[:default_pool_size] || 25 %>
+<% if pgbouncer_config[:min_pool_size] %>
+min_pool_size = <%= pgbouncer_config[:min_pool_size] %>
+<% end %>
+reserve_pool_size = <%= pgbouncer_config[:reserve_pool_size] || 5 %>
+reserve_pool_timeout = <%= pgbouncer_config[:reserve_pool_timeout] || 5 %>
+<% if pgbouncer_config[:max_db_connections] %>
+max_db_connections = <%= pgbouncer_config[:max_db_connections] %>
+<% end %>
+<% if pgbouncer_config[:max_user_connections] %>
+max_user_connections = <%= pgbouncer_config[:max_user_connections] %>
+<% end %>
+
+# Connection behavior
+server_reset_query = <%= pgbouncer_config[:server_reset_query] || 'DISCARD ALL' %>
+server_lifetime = <%= pgbouncer_config[:server_lifetime] || 3600 %>
+server_idle_timeout = <%= pgbouncer_config[:server_idle_timeout] || 600 %>
+server_connect_timeout = <%= pgbouncer_config[:server_connect_timeout] || 15 %>
+client_idle_timeout = <%= pgbouncer_config[:client_idle_timeout] || 0 %>
+client_login_timeout = <%= pgbouncer_config[:client_login_timeout] || 60 %>
+query_timeout = <%= pgbouncer_config[:query_timeout] || 0 %>
+query_wait_timeout = <%= pgbouncer_config[:query_wait_timeout] || 120 %>
+
+# Logging and administration
+admin_users = <%= pgbouncer_config[:admin_users] || config.postgres_user %>
+stats_users = <%= pgbouncer_config[:stats_users] || config.postgres_user %>
+log_connections = <%= pgbouncer_config[:log_connections] || 1 %>
+log_disconnections = <%= pgbouncer_config[:log_disconnections] || 1 %>
+log_pooler_errors = <%= pgbouncer_config[:log_pooler_errors] || 1 %>
+
+# Process management
+<% if pgbouncer_config[:pidfile] %>
+pidfile = <%= pgbouncer_config[:pidfile] %>
+<% end %>
+<% if pgbouncer_config[:logfile] %>
+logfile = <%= pgbouncer_config[:logfile] %>
+<% end %>
+
+

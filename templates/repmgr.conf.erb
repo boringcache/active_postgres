@@ -1,0 +1,40 @@
+<%
+  # Get node label from config for professional naming
+  node_label = config.node_label_for(host)
+  if node_label.nil?
+    node_label = if host == config.primary_host
+      "primary-#{host.split('.').first}"
+    else
+      "standby-#{host.split('.').first}"
+    end
+  end
+%>
+node_id=<%= host == config.primary_host ? 1 : config.standby_hosts.index(host) + 2 %>
+node_name='<%= node_label %>'
+<%
+  # conninfo describes how OTHER nodes connect to THIS node
+  repmgr_host = config.replication_host_for(host)
+%>
+conninfo='host=<%= repmgr_host %> user=<%= config.repmgr_user %> dbname=<%= config.repmgr_database %> password=<%= secrets_obj.resolve('repmgr_password') %> connect_timeout=2'
+data_directory='/var/lib/postgresql/<%= config.version %>/main'
+
+<% if host == config.primary_host %>
+failover=automatic
+priority=<%= repmgr_config[:priority] || 100 %>
+<% else %>
+failover=automatic
+priority=<%= repmgr_config[:priority] || 100 %>
+promote_command='repmgr standby promote -f /etc/repmgr.conf'
+follow_command='repmgr standby follow -f /etc/repmgr.conf --upstream-node-id=%n'
+<% end %>
+
+reconnect_attempts=<%= repmgr_config[:reconnect_attempts] || 6 %>
+reconnect_interval=<%= repmgr_config[:reconnect_interval] || 10 %>
+
+log_level=INFO
+log_facility=STDERR
+log_file='/var/log/postgresql/repmgr.log'
+
+monitoring_history=yes
+monitor_interval_secs=5
+

@@ -1,0 +1,287 @@
+---
+# PostgreSQL Configuration
+# Copy to config/postgres.yml and customize
+#
+# Supports two configurations:
+# 1. Single server (primary only) - Simple setup, no replication
+# 2. Primary + Standbys (replicas) - High Availability with automatic failover
+#
+# For HA setup, enable repmgr component and define standby servers
+
+# Shared configuration
+shared: &shared
+  version: 18
+  user: ubuntu
+  ssh_key: ~/.ssh/id_rsa
+  
+  # Components (enable as needed)
+  components:
+    core:
+      locale: en_US.UTF-8
+      encoding: UTF8
+      data_checksums: true
+
+      # PostgreSQL configuration (postgresql.conf)
+      # NOTE: If performance_tuning is enabled, these values are auto-calculated
+      # based on hardware and can be overridden here
+      postgresql:
+        listen_addresses: '*'           # Listen on all interfaces (0.0.0.0)
+        port: 5432
+        # Settings below are auto-calculated when performance_tuning is enabled
+        # Uncomment to override:
+        # max_connections: 100
+        # shared_buffers: 256MB
+        # effective_cache_size: 1GB
+        # work_mem: 4MB
+        # maintenance_work_mem: 64MB
+        
+        # WAL settings (for replication)
+        wal_level: replica
+        max_wal_senders: 10
+        max_replication_slots: 10
+        wal_keep_size: 1GB
+        
+        # Checkpoint settings
+        checkpoint_completion_target: 0.9
+        checkpoint_timeout: 15min
+        
+        # Logging
+        logging_collector: 'on'
+        log_directory: 'log'
+        log_filename: 'postgresql-%Y-%m-%d_%H%M%S.log'
+        log_rotation_age: 1d
+        log_rotation_size: 100MB
+      
+      # Host-based authentication (pg_hba.conf)
+      pg_hba:
+        # Allow local connections
+        - type: local
+          database: all
+          user: all
+          method: peer
+        
+        # Allow localhost
+        - type: host
+          database: all
+          user: all
+          address: 127.0.0.1/32
+          method: scram-sha-256
+        
+              # Allow from private network (adjust to your network)
+              - type: host
+                database: all
+                user: all
+                address: 192.168.0.0/16
+                method: scram-sha-256
+        
+        # Replication connections (if repmgr enabled)
+        - type: host
+          database: replication
+          user: repmgr
+          address: 192.168.0.0/16
+          method: scram-sha-256
+        
+        - type: host
+          database: repmgr
+          user: repmgr
+          address: 192.168.0.0/16
+          method: scram-sha-256
+    
+    # Automatic performance tuning based on hardware (DISABLED BY DEFAULT)
+    performance_tuning:
+      enabled: false  # Set to true to enable automatic performance tuning
+      db_type: web    # Options: web, oltp, dw (data warehouse), desktop
+      # When enabled:
+      # - Analyzes CPU cores, RAM, and storage type (SSD/HDD)
+      # - Calculates optimal PostgreSQL settings (shared_buffers, work_mem, etc.)
+      # - User overrides in core.postgresql always take precedence
+
+    repmgr:
+      enabled: true
+      auto_failover: true
+      priority: 100
+      reconnect_attempts: 6
+      reconnect_interval: 10
+
+    pgbouncer:
+      enabled: true
+      # Pool settings are automatically calculated based on PostgreSQL max_connections
+      # Uncomment to override calculated values:
+      listen_port: 6432
+      pool_mode: transaction
+      # max_client_conn: 1000      # Auto: max_connections * 10
+      # default_pool_size: 25       # Auto: calculated based on max_connections
+      # reserve_pool_size: 5
+      # reserve_pool_timeout: 5
+    
+    pgbackrest:
+      enabled: true
+      repo_type: s3  # s3, gcs, azure, local
+      s3_bucket: myapp-backups
+      s3_region: us-east-1
+      schedule: "0 2 * * *"
+      retention_full: 7
+      retention_archive: 14
+    
+    monitoring:
+      enabled: true
+      exporter_port: 9187
+    
+    ssl:
+      enabled: true
+      mode: require  # require, verify-ca, verify-full
+
+    # PostgreSQL Extensions
+    extensions:
+      enabled: false
+      list: []
+        # - pgvector        # Vector similarity search (requires package)
+        # - postgis         # Geospatial data (requires package)
+        # - pg_trgm         # Text similarity (built-in)
+        # - hstore          # Key-value store (built-in)
+        # - uuid-ossp       # UUID generation (built-in)
+        # - ltree           # Hierarchical tree structures (built-in)
+        # - citext          # Case-insensitive text (built-in)
+        # - unaccent        # Remove accents (built-in)
+        # - pg_stat_statements  # Query statistics (built-in)
+        # - timescaledb     # Time-series data (requires package)
+        # - citus           # Distributed PostgreSQL (requires package)
+        # - pg_partman      # Partition management (requires package)
+
+# Development (local PostgreSQL - single server, no replication)
+development:
+  <<: *shared
+
+  # Optional: Skip actual deployment (useful for testing config)
+  # skip_deployment: true
+
+  primary:
+    host: localhost
+    port: 5432
+
+  # No standby - single server setup
+  # standby: []
+
+  components:
+    # All components disabled by default - no need to explicitly disable
+    repmgr: {enabled: false}      # Single server - no replication needed
+    pgbouncer: {enabled: false}
+    pgbackrest: {enabled: false}
+    monitoring: {enabled: false}
+    ssl: {enabled: false}
+
+# Staging (single primary with one standby)
+staging:
+  <<: *shared
+  primary:
+    host: 34.12.234.81       # Public IP for SSH (like Kamal)
+    private_ip: 10.0.1.10    # Optional: Private IP for PostgreSQL replication (VPN/VPC)
+    label: us-east-1         # Optional: Human-readable label for this node
+
+  # Single standby for HA
+  standby:
+    - host: 52.23.45.67      # Public IP for SSH
+      private_ip: 10.0.1.11  # Optional: Private IP for replication
+      label: us-west-2
+  
+  components:
+    repmgr: {enabled: true}   # Enable for HA
+  
+  # Secrets (choose one method)
+  secrets:
+    # Method 1: Environment variables (recommended for CI/CD)
+    superuser_password: $POSTGRES_SUPERUSER_PASSWORD
+    replication_password: $POSTGRES_REPLICATION_PASSWORD
+    repmgr_password: $POSTGRES_REPMGR_PASSWORD
+    
+    # Method 2: Cached local files (after running: active_postgres cache-secrets)
+    # superuser_password: $(cat .secrets/superuser_password)
+    # replication_password: $(cat .secrets/replication_password)
+    # repmgr_password: $(cat .secrets/repmgr_password)
+
+# Production (primary with multiple standbys/replicas)
+production:
+  <<: *shared
+  primary:
+    host: 34.12.234.81       # Public IP for SSH (like Kamal)
+    private_ip: 10.8.0.100   # Optional: Private IP for PostgreSQL replication (VPN/VPC)
+    label: us-east-1         # Optional: Human-readable label
+
+  # Multiple standbys/replicas for HA and read scaling
+  standby:
+    - host: 52.23.45.67      # Public IP for SSH
+      private_ip: 10.8.0.101 # Optional: Private IP for replication
+      label: us-west-2
+
+    - host: 18.156.78.90     # Public IP for SSH
+      private_ip: 10.8.0.102 # Optional: Private IP for replication
+      label: eu-west-1
+
+  # Optional: Add more replicas for read scaling
+  # - host: 35.178.45.23
+  #   private_ip: 10.8.0.103
+  #   label: ap-southeast-1
+
+  components:
+    # Enable auto-tuning for production workloads
+    performance_tuning:
+      enabled: true
+      db_type: web  # or 'oltp', 'dw' based on your workload
+
+    repmgr: {enabled: true}   # Enable for HA with multiple standbys
+  
+  # Optional: Database name for extensions (defaults to 'postgres')
+  # database_name: myapp_production
+
+  # Secrets (choose one method and use consistently)
+  secrets:
+    # Method 1: Environment variables (recommended for CI/CD)
+    superuser_password: $POSTGRES_SUPERUSER_PASSWORD
+    replication_password: $POSTGRES_REPLICATION_PASSWORD
+    repmgr_password: $POSTGRES_REPMGR_PASSWORD
+    pgbouncer_password: $POSTGRES_PGBOUNCER_PASSWORD
+    app_password: $POSTGRES_APP_PASSWORD
+    
+    # Method 2: Cached local files (after running: active_postgres cache-secrets)
+    # superuser_password: $(cat .secrets/superuser_password)
+    # replication_password: $(cat .secrets/replication_password)
+    # repmgr_password: $(cat .secrets/repmgr_password)
+    # pgbouncer_password: $(cat .secrets/pgbouncer_password)
+    # app_password: $(cat .secrets/app_password)
+    
+    # Method 3: 1Password CLI (install: brew install 1password-cli)
+    # superuser_password: $(op read "op://BoringCache/postgres-superuser/password")
+    # replication_password: $(op read "op://BoringCache/postgres-replication/password")
+    # repmgr_password: $(op read "op://BoringCache/postgres-repmgr/password")
+    # pgbouncer_password: $(op read "op://BoringCache/postgres-pgbouncer/password")
+    # app_password: $(op read "op://BoringCache/postgres-app/password")
+    
+    # Method 4: Rails credentials (if using Rails)
+    # superuser_password: $(rails credentials:show | yq .postgres.superuser_password)
+    # replication_password: $(rails credentials:show | yq .postgres.replication_password)
+    # repmgr_password: $(rails credentials:show | yq .postgres.repmgr_password)
+    # pgbouncer_password: $(rails credentials:show | yq .postgres.pgbouncer_password)
+    # app_password: $(rails credentials:show | yq .postgres.app_password)
+    
+    # SSL certificates (if ssl component enabled)
+    # Method 1: Environment variables
+    # ssl_cert: $POSTGRES_SSL_CERT
+    # ssl_key: $POSTGRES_SSL_KEY
+    # ssl_ca: $POSTGRES_SSL_CA
+    
+    # Method 2: Cached local files
+    # ssl_cert: $(cat .secrets/ssl_cert)
+    # ssl_key: $(cat .secrets/ssl_key)
+    # ssl_ca: $(cat .secrets/ssl_ca)
+    
+    # Method 3: 1Password CLI
+    # ssl_cert: $(op read "op://BoringCache/postgres-ssl/certificate")
+    # ssl_key: $(op read "op://BoringCache/postgres-ssl/private_key")
+    # ssl_ca: $(op read "op://BoringCache/postgres-ssl/ca_certificate")
+    
+    # Method 4: Rails credentials
+    # ssl_cert: $(rails credentials:show | yq .postgres.ssl.cert)
+    # ssl_key: $(rails credentials:show | yq .postgres.ssl.key)
+    # ssl_ca: $(rails credentials:show | yq .postgres.ssl.ca)
+
+

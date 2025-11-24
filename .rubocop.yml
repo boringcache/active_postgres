@@ -1,0 +1,86 @@
+AllCops:
+  NewCops: enable
+  TargetRubyVersion: 3.3
+  SuggestExtensions: false
+  Exclude:
+    - 'vendor/**/*'
+    - 'node_modules/**/*'
+    - 'tmp/**/*'
+    - 'bin/**/*'
+
+Layout/LineLength:
+  Max: 150
+
+Metrics/MethodLength:
+  Max: 35
+  Exclude:
+    - 'lib/active_postgres/components/repmgr.rb'
+    - 'lib/active_postgres/connection_pooler.rb'
+    - 'lib/active_postgres/generators/active_postgres/install_generator.rb'
+    - 'lib/active_postgres/performance_tuner.rb'
+    - 'lib/active_postgres/ssh_executor.rb'
+
+Metrics/ClassLength:
+  Max: 250
+  Exclude:
+    - 'lib/active_postgres/components/repmgr.rb'
+    - 'lib/active_postgres/connection_pooler.rb'
+    - 'lib/active_postgres/ssh_executor.rb'
+
+Metrics/AbcSize:
+  Max: 40
+  Exclude:
+    - 'lib/active_postgres/components/repmgr.rb'
+    - 'lib/active_postgres/connection_pooler.rb'
+    - 'lib/active_postgres/generators/active_postgres/install_generator.rb'
+    - 'lib/active_postgres/performance_tuner.rb'
+    - 'lib/active_postgres/ssh_executor.rb'
+    - 'lib/active_postgres/validator.rb'
+
+Metrics/CyclomaticComplexity:
+  Max: 12
+  Exclude:
+    - 'lib/active_postgres/components/repmgr.rb'
+    - 'lib/active_postgres/connection_pooler.rb'
+    - 'lib/active_postgres/generators/active_postgres/install_generator.rb'
+
+Metrics/PerceivedComplexity:
+  Max: 12
+  Exclude:
+    - 'lib/active_postgres/components/repmgr.rb'
+    - 'lib/active_postgres/connection_pooler.rb'
+    - 'lib/active_postgres/generators/active_postgres/install_generator.rb'
+
+Metrics/BlockLength:
+  Enabled: false
+
+Metrics/ParameterLists:
+  Max: 6
+
+Style/Documentation:
+  Enabled: false
+
+Style/StringLiterals:
+  EnforcedStyle: single_quotes
+
+Style/FrozenStringLiteralComment:
+  Enabled: false
+
+Style/FormatStringToken:
+  Enabled: false
+
+Naming/PredicatePrefix:
+  Enabled: false
+
+Naming/PredicateMethod:
+  Enabled: false
+
+Lint/DuplicateBranch:
+  Enabled: false
+
+Lint/FormatParameterMismatch:
+  Exclude:
+    - 'lib/active_postgres/performance_tuner.rb'
+
+Gemspec/DevelopmentDependencies:
+  Enabled: false
