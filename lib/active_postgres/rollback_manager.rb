@@ -116,6 +116,7 @@ module ActivePostgres
       register("Drop database #{database_name} on #{host}", host: host) do
         sql = "DROP DATABASE IF EXISTS #{database_name};"
         upload! StringIO.new(sql), '/tmp/drop_database.sql'
+        execute :chmod, '644', '/tmp/drop_database.sql'
         execute :sudo, '-u', postgres_user, 'psql', '-f', '/tmp/drop_database.sql'
         execute :rm, '-f', '/tmp/drop_database.sql'
       rescue StandardError
@@ -128,6 +129,7 @@ module ActivePostgres
       register("Drop PostgreSQL user #{username} on #{host}", host: host) do
         sql = "DROP USER IF EXISTS #{username};"
         upload! StringIO.new(sql), '/tmp/drop_user.sql'
+        execute :chmod, '644', '/tmp/drop_user.sql'
         execute :sudo, '-u', postgres_user, 'psql', '-f', '/tmp/drop_user.sql'
         execute :rm, '-f', '/tmp/drop_user.sql'
       rescue StandardError

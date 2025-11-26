@@ -51,6 +51,9 @@ module ActivePostgres
       components.each do |component|
         setup_component(component.to_s, hosts_to_deploy) if config.component_enabled?(component)
       end
+
+      # Create application users AFTER repmgr to avoid being wiped by cluster recreation
+      create_application_users_if_configured
     end
 
     def list_next_steps
@@ -72,6 +75,11 @@ module ActivePostgres
 
     def should_setup_repmgr?
       config.component_enabled?(:repmgr) && standbys?
+    end
+
+    def create_application_users_if_configured
+      core_component = Components::Core.new(config, ssh_executor, secrets)
+      core_component.create_application_users
     end
   end
 end

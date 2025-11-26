@@ -6,7 +6,7 @@ if defined?(Rails::Railtie)
       railtie_name :active_postgres
 
       rake_tasks do
-        load File.expand_path('../tasks/postgres.rake', __dir__)
+        Dir[File.expand_path('../tasks/**/*.rake', __dir__)].each { |f| load f }
       end
 
       generators do

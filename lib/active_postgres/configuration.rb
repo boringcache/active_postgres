@@ -104,11 +104,13 @@ module ActivePostgres
     end
 
     def app_user
-      component_config(:core)[:app_user] || 'app'
+      value = component_config(:core)[:app_user]
+      value.nil? || value.to_s.strip.empty? ? 'app' : value
     end
 
     def app_database
-      component_config(:core)[:app_database] || 'app_production'
+      value = component_config(:core)[:app_database]
+      value.nil? || value.to_s.strip.empty? ? "app_#{environment}" : value
     end
 
     private
@@ -123,7 +125,9 @@ module ActivePostgres
         version: @version,
         locale: core_config['locale'] || 'en_US.UTF-8',
         encoding: core_config['encoding'] || 'UTF8',
-        data_checksums: core_config['data_checksums'] != false
+        data_checksums: core_config['data_checksums'] != false,
+        app_user: core_config['app_user'],
+        app_database: core_config['app_database']
       }
 
       # Include pg_hba and postgresql config if present

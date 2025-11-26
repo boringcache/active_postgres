@@ -72,9 +72,13 @@ module ActivePostgres
     end
 
     def execute_command(command)
-      result = `#{command}`.strip
+      # Preserve RAILS_ENV if set
+      env_prefix = ENV['RAILS_ENV'] ? "RAILS_ENV=#{ENV['RAILS_ENV']} " : ''
+      full_command = "#{env_prefix}#{command}"
 
-      raise Error, "Failed to execute secret command: #{command}" unless $CHILD_STATUS.success?
+      result = `#{full_command}`.strip
+
+      raise Error, "Failed to execute secret command: #{command} (exit status: #{$CHILD_STATUS.exitstatus})" unless $CHILD_STATUS.success?
 
       result
     end

@@ -10,7 +10,7 @@ class PgBouncerTest < Minitest::Test
       WHERE rolname = '#{postgres_user}'
     SQL
 
-    expected = %Q{SELECT concat('"', rolname, '" "', rolpassword, '"')\nFROM pg_authid\nWHERE rolname = 'postgres'}
+    expected = %{SELECT concat('"', rolname, '" "', rolpassword, '"')\nFROM pg_authid\nWHERE rolname = 'postgres'}
     assert_equal expected, sql
   end
 
@@ -23,7 +23,7 @@ class PgBouncerTest < Minitest::Test
       WHERE rolname = '#{app_user}'
     SQL
 
-    expected = %Q{SELECT concat('"', rolname, '" "', rolpassword, '"')\nFROM pg_authid\nWHERE rolname = 'boring_cache_web'}
+    expected = %{SELECT concat('"', rolname, '" "', rolpassword, '"')\nFROM pg_authid\nWHERE rolname = 'boring_cache_web'}
     assert_equal expected, sql
   end
 
@@ -54,18 +54,18 @@ class PgBouncerTest < Minitest::Test
     secrets = Minitest::Mock.new
     pgbouncer = ActivePostgres::Components::PgBouncer.new(config, ssh_executor, secrets)
 
-    ssh_executor.expect(:execute_on_host, nil) do |host, &block|
+    ssh_executor.expect(:execute_on_host, nil) do |host|
       host == 'db.example.com'
     end
-    ssh_executor.expect(:execute_on_host, nil) do |host, &block|
+    ssh_executor.expect(:execute_on_host, nil) do |host|
       host == 'db.example.com'
     end
 
     def pgbouncer.upload_template(*); end
-    def pgbouncer.get_postgres_max_connections(*); 100; end
+    def pgbouncer.get_postgres_max_connections(*) = 100
 
     userlist_called = false
-    pgbouncer.define_singleton_method(:create_userlist) do |host|
+    pgbouncer.define_singleton_method(:create_userlist) do |_host|
       userlist_called = true
     end
 

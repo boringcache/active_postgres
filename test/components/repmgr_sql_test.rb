@@ -24,9 +24,9 @@ class RepmgrSqlTest < Minitest::Test
   def test_repmgr_password_escaping
     repmgr_user = 'repmgr'
     passwords = [
-      "simple_pass",
+      'simple_pass',
       "pass'word",
-      "jF7Bj}^~8l~,4KcY(~,R6m!M_|IIe6}Z",
+      'jF7Bj}^~8l~,4KcY(~,R6m!M_|IIe6}Z',
       "test'many''quotes"
     ]
 
@@ -48,7 +48,7 @@ class RepmgrSqlTest < Minitest::Test
 
     sql = "CREATE USER #{repmgr_user} WITH SUPERUSER PASSWORD '#{escaped_password}'"
 
-    assert_includes sql, "SUPERUSER", "Repmgr user must be superuser"
+    assert_includes sql, 'SUPERUSER', 'Repmgr user must be superuser'
   end
 
   def test_repmgr_database_owner
@@ -69,6 +69,6 @@ class RepmgrSqlTest < Minitest::Test
       "DROP USER IF EXISTS #{repmgr_user}"
     ].join('; ')
 
-    assert_includes sql, "IF EXISTS", "Should use IF EXISTS for idempotent operations"
+    assert_includes sql, 'IF EXISTS', 'Should use IF EXISTS for idempotent operations'
   end
 end

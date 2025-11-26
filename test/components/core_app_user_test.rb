@@ -1,39 +1,29 @@
 require 'test_helper'
 
 class CoreAppUserTest < Minitest::Test
-  def test_app_user_creation_called_during_install
+  def test_create_application_users_method
     config = stub_config(
       app_user: 'test_app_user',
       app_database: 'test_app_db',
-      secrets_config: { app_password: 'test_password' },
-      component_enabled?: ->(name) { name == :repmgr }
+      secrets_config: { app_password: 'test_password' }
     )
 
     ssh_executor = Minitest::Mock.new
     secrets = Minitest::Mock.new
     core = ActivePostgres::Components::Core.new(config, ssh_executor, secrets)
 
-    # Expect install_on_host to be called
-    ssh_executor.expect(:install_postgres, nil, [config.primary_host, config.version])
-    ssh_executor.expect(:ensure_cluster_exists, nil, [config.primary_host, config.version])
-    ssh_executor.expect(:restart_postgres, nil, [config.primary_host, config.version])
-
-    # Expect packages_only install for standbys
-    ssh_executor.expect(:install_postgres, nil, [config.standby_hosts.first, config.version])
-
-    # Mock the upload_template calls (2 for postgresql.conf and pg_hba.conf)
-    def core.upload_template(*); end
-
     # Mock create_app_user_and_database
     app_user_called = false
+    called_with_host = nil
     core.define_singleton_method(:create_app_user_and_database) do |host|
       app_user_called = true
+      called_with_host = host
     end
 
-    core.install
+    core.create_application_users
 
-    assert app_user_called, 'Should call create_app_user_and_database during install'
-    ssh_executor.verify
+    assert app_user_called, 'Should call create_app_user_and_database'
+    assert_equal config.primary_host, called_with_host
   end
 
   def test_skips_app_user_creation_when_not_configured

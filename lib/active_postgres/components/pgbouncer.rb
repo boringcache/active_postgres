@@ -82,62 +82,54 @@ module ActivePostgres
 
         postgres_user = config.postgres_user
         app_user = config.app_user
+        users_to_add = [postgres_user, (app_user if app_user != postgres_user)].compact
+        pgbouncer = self
 
         ssh_executor.execute_on_host(host) do
-          userlist_entries = []
+          backend = self
+          userlist_entries = users_to_add.filter_map { |user| pgbouncer.send(:fetch_user_hash, backend, user, postgres_user) }
+          pgbouncer.send(:write_userlist_file, backend, userlist_entries)
+        end
+      end
 
-          begin
-            sql = <<~SQL.strip
-              SELECT concat('"', rolname, '" "', rolpassword, '"')
-              FROM pg_authid
-              WHERE rolname = '#{postgres_user}'
-            SQL
+      def fetch_user_hash(backend, user, postgres_user)
+        sql = build_user_hash_sql(user)
 
-            upload! StringIO.new(sql), '/tmp/get_user_hash.sql'
-            postgres_hash = capture(:sudo, '-u', postgres_user, 'psql', '-t', '-f', '/tmp/get_user_hash.sql').strip
-            execute :rm, '-f', '/tmp/get_user_hash.sql'
+        backend.upload! StringIO.new(sql), '/tmp/get_user_hash.sql'
+        backend.execute :chmod, '644', '/tmp/get_user_hash.sql'
+        user_hash = backend.capture(:sudo, '-u', postgres_user, 'psql', '-t', '-f', '/tmp/get_user_hash.sql').strip
+        backend.execute :rm, '-f', '/tmp/get_user_hash.sql'
 
-            if postgres_hash && !postgres_hash.empty?
-              userlist_entries << postgres_hash
-              puts "  ✓ Added #{postgres_user} to PgBouncer userlist"
-            end
-          rescue StandardError => e
-            warn "  ⚠ Warning: Could not get password hash for #{postgres_user}: #{e.message}"
-          end
+        if user_hash && !user_hash.empty?
+          puts "  ✓ Added #{user} to PgBouncer userlist"
+          user_hash
+        else
+          warn "  ⚠ User #{user} not found in PostgreSQL - create it first"
+          nil
+        end
+      rescue StandardError => e
+        warn "  ⚠ Warning: Could not get password hash for #{user}: #{e.message}"
+        nil
+      end
 
-          if app_user && app_user != postgres_user
-            begin
-              sql = <<~SQL.strip
-                SELECT concat('"', rolname, '" "', rolpassword, '"')
-                FROM pg_authid
-                WHERE rolname = '#{app_user}'
-              SQL
+      def build_user_hash_sql(user)
+        <<~SQL.strip
+          SELECT concat('"', rolname, '" "', rolpassword, '"')
+          FROM pg_authid
+          WHERE rolname = '#{user}'
+        SQL
+      end
 
-              upload! StringIO.new(sql), '/tmp/get_user_hash.sql'
-              app_hash = capture(:sudo, '-u', postgres_user, 'psql', '-t', '-f', '/tmp/get_user_hash.sql').strip
-              execute :rm, '-f', '/tmp/get_user_hash.sql'
-
-              if app_hash && !app_hash.empty?
-                userlist_entries << app_hash
-                puts "  ✓ Added #{app_user} to PgBouncer userlist"
-              else
-                warn "  ⚠ User #{app_user} not found in PostgreSQL - create it first"
-              end
-            rescue StandardError => e
-              warn "  ⚠ Warning: Could not get password hash for #{app_user}: #{e.message}"
-            end
-          end
-
-          # Write userlist file
-          if userlist_entries.any?
-            userlist_content = "#{userlist_entries.join("\n")}\n"
-            execute :sudo, 'tee', '/etc/pgbouncer/userlist.txt', stdin: StringIO.new(userlist_content)
-            execute :sudo, 'chmod', '640', '/etc/pgbouncer/userlist.txt'
-            execute :sudo, 'chown', 'postgres:postgres', '/etc/pgbouncer/userlist.txt'
-            puts "  ✓ Created userlist with #{userlist_entries.size} user(s)"
-          else
-            warn '  Warning: No users added to userlist - connections may fail'
-          end
+      def write_userlist_file(backend, userlist_entries)
+        if userlist_entries.any?
+          userlist_content = "#{userlist_entries.join("\n")}\n"
+          backend.upload! StringIO.new(userlist_content), '/tmp/userlist.txt'
+          backend.execute :sudo, 'mv', '/tmp/userlist.txt', '/etc/pgbouncer/userlist.txt'
+          backend.execute :sudo, 'chmod', '640', '/etc/pgbouncer/userlist.txt'
+          backend.execute :sudo, 'chown', 'postgres:postgres', '/etc/pgbouncer/userlist.txt'
+          puts "  ✓ Created userlist with #{userlist_entries.size} user(s)"
+        else
+          warn '  Warning: No users added to userlist - connections may fail'
         end
       end
     end

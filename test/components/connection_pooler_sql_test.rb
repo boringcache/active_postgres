@@ -8,9 +8,9 @@ class ConnectionPoolerSqlTest < Minitest::Test
       WHERE passwd IS NOT NULL
     SQL
 
-    assert_includes sql, "SELECT concat"
-    assert_includes sql, "FROM pg_shadow"
-    assert_includes sql, "WHERE passwd IS NOT NULL"
+    assert_includes sql, 'SELECT concat'
+    assert_includes sql, 'FROM pg_shadow'
+    assert_includes sql, 'WHERE passwd IS NOT NULL'
   end
 
   def test_create_pgbouncer_user_sql
@@ -24,15 +24,15 @@ class ConnectionPoolerSqlTest < Minitest::Test
     ].join("\n")
 
     assert_includes sql, "CREATE USER #{pgbouncer_user}"
-    assert_includes sql, "GRANT CONNECT ON DATABASE postgres"
+    assert_includes sql, 'GRANT CONNECT ON DATABASE postgres'
   end
 
   def test_pgbouncer_password_escaping
     pgbouncer_user = 'pgbouncer'
     passwords = [
-      "simple",
+      'simple',
       "pass'word",
-      "jF7Bj}^~8l~,4KcY(~,R6m!M_|IIe6}Z"
+      'jF7Bj}^~8l~,4KcY(~,R6m!M_|IIe6}Z'
     ]
 
     passwords.each do |password|
@@ -55,8 +55,8 @@ class ConnectionPoolerSqlTest < Minitest::Test
       WHERE usename = '#{pgbouncer_user}'
     SQL
 
-    assert_includes sql, "SELECT passwd"
-    assert_includes sql, "FROM pg_shadow"
+    assert_includes sql, 'SELECT passwd'
+    assert_includes sql, 'FROM pg_shadow'
     assert_includes sql, "WHERE usename = '#{pgbouncer_user}'"
   end
 
@@ -64,8 +64,8 @@ class ConnectionPoolerSqlTest < Minitest::Test
     pgbouncer_user = 'pgbouncer'
     sql = "GRANT CONNECT ON DATABASE postgres TO #{pgbouncer_user};"
 
-    assert_includes sql, "GRANT CONNECT"
-    assert_includes sql, "ON DATABASE postgres"
+    assert_includes sql, 'GRANT CONNECT'
+    assert_includes sql, 'ON DATABASE postgres'
     assert_includes sql, "TO #{pgbouncer_user}"
   end
 end

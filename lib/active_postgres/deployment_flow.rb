@@ -138,10 +138,11 @@ module ActivePostgres
         component = component_class.new(config, ssh_executor, secrets)
 
         Array(hosts).each do |host|
+          captured_logger = logger
           rollback_manager.register("Uninstall #{component_name} on #{host}", host: host) do
             component.uninstall
           rescue StandardError => e
-            logger.warn "Failed to uninstall #{component_name} on #{host}: #{e.message}"
+            captured_logger.warn "Failed to uninstall #{component_name} on #{host}: #{e.message}"
           end
         end
 

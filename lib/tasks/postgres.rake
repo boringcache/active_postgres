@@ -1,3 +1,13 @@
+def format_lag_status(lag)
+  if lag < 10
+    "      Lag: ✅ #{lag}s (excellent)"
+  elsif lag < 60
+    "      Lag: ⚠️ #{lag}s (acceptable)"
+  else
+    "      Lag: ❌ #{lag}s (high)"
+  end
+end
+
 namespace :postgres do
   desc 'Setup PostgreSQL HA cluster (use CLEAN=true for fresh install)'
   task setup: :environment do
@@ -203,15 +213,7 @@ namespace :postgres do
               rescue StandardError
                 nil
               end
-              if lag
-                if lag < 10
-                  puts "      Lag: ✅ #{lag}s (excellent)"
-                elsif lag < 60
-                  puts "      Lag: ⚠️ #{lag}s (acceptable)"
-                else
-                  puts "      Lag: ❌ #{lag}s (high)"
-                end
-              end
+              puts format_lag_status(lag) if lag
             elsif status =~ /online/
               puts '      Status: ⚠️  Running but not replicating'
             else
@@ -364,31 +366,32 @@ namespace :postgres do
         userlist_entries = []
 
         users.each do |user|
-          begin
-            sql = <<~SQL.strip
-              SELECT concat('"', rolname, '" "', rolpassword, '"')
-              FROM pg_authid
-              WHERE rolname = '#{user}'
-            SQL
+          sql = <<~SQL.strip
+            SELECT concat('"', rolname, '" "', rolpassword, '"')
+            FROM pg_authid
+            WHERE rolname = '#{user}'
+          SQL
 
-            upload! StringIO.new(sql), '/tmp/get_user_hash.sql'
-            user_hash = capture(:sudo, '-u', postgres_user, 'psql', '-t', '-f', '/tmp/get_user_hash.sql').strip
-            execute :rm, '-f', '/tmp/get_user_hash.sql'
+          upload! StringIO.new(sql), '/tmp/get_user_hash.sql'
+          execute :chmod, '644', '/tmp/get_user_hash.sql'
+          user_hash = capture(:sudo, '-u', postgres_user, 'psql', '-t', '-f', '/tmp/get_user_hash.sql').strip
+          execute :rm, '-f', '/tmp/get_user_hash.sql'
 
-            if user_hash && !user_hash.empty?
-              userlist_entries << user_hash
-              puts "  ✓ Added #{user}"
-            else
-              warn "  ⚠ User #{user} not found in PostgreSQL"
-            end
-          rescue StandardError => e
-            warn "  ✗ Error getting hash for #{user}: #{e.message}"
+          if user_hash && !user_hash.empty?
+            userlist_entries << user_hash
+            puts "  ✓ Added #{user}"
+          else
+            warn "  ⚠ User #{user} not found in PostgreSQL"
           end
+        rescue StandardError => e
+          warn "  ✗ Error getting hash for #{user}: #{e.message}"
         end
 
         if userlist_entries.any?
           userlist_content = "#{userlist_entries.join("\n")}\n"
-          execute :sudo, 'tee', '/etc/pgbouncer/userlist.txt', stdin: StringIO.new(userlist_content)
+          # Upload to temp file first, then move to avoid stdin issues
+          upload! StringIO.new(userlist_content), '/tmp/userlist.txt'
+          execute :sudo, 'mv', '/tmp/userlist.txt', '/etc/pgbouncer/userlist.txt'
           execute :sudo, 'chmod', '640', '/etc/pgbouncer/userlist.txt'
           execute :sudo, 'chown', 'postgres:postgres', '/etc/pgbouncer/userlist.txt'
           execute :sudo, 'systemctl', 'reload', 'pgbouncer'

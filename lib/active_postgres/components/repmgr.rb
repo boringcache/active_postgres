@@ -105,10 +105,7 @@ module ActivePostgres
         core_config = config.component_config(:core)
         component_config = core_config
 
-        # Calculate optimal PostgreSQL settings if performance tuning is enabled
-        if config.component_enabled?(:performance_tuning)
-          # Reuse Core component's tuning logic
-        end
+        # Performance tuning is handled by the Core component
         pg_config = component_config[:postgresql] || {}
         _ = pg_config # Used in ERB template
 
@@ -308,9 +305,7 @@ module ActivePostgres
         core_config = config.component_config(:core)
         component_config = core_config
 
-        # Calculate optimal PostgreSQL settings if performance tuning is enabled
-        if config.component_enabled?(:performance_tuning)
-        end
+        # Performance tuning is handled by the Core component
         pg_config = component_config[:postgresql] || {}
         _ = pg_config # Used in ERB template
 

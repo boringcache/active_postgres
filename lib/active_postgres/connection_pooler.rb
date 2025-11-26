@@ -322,6 +322,7 @@ module ActivePostgres
         SQL
 
         upload! StringIO.new(sql), '/tmp/get_all_users.sql'
+        execute :chmod, '644', '/tmp/get_all_users.sql'
         userlist = capture(:sudo, '-u', postgres_user, 'psql', '-t', '-f', '/tmp/get_all_users.sql').strip
         execute :rm, '-f', '/tmp/get_all_users.sql'
 
@@ -335,6 +336,7 @@ module ActivePostgres
           ].join("\n")
 
           upload! StringIO.new(sql), '/tmp/create_pgbouncer_user.sql'
+          execute :chmod, '644', '/tmp/create_pgbouncer_user.sql'
           execute :sudo, '-u', postgres_user, 'psql', '-f', '/tmp/create_pgbouncer_user.sql'
           execute :rm, '-f', '/tmp/create_pgbouncer_user.sql'
 
@@ -345,6 +347,7 @@ module ActivePostgres
           SQL
 
           upload! StringIO.new(sql), '/tmp/get_pgbouncer_pass.sql'
+          execute :chmod, '644', '/tmp/get_pgbouncer_pass.sql'
           encrypted = capture(:sudo, '-u', postgres_user, 'psql', '-t', '-f', '/tmp/get_pgbouncer_pass.sql').strip
           execute :rm, '-f', '/tmp/get_pgbouncer_pass.sql'
 
