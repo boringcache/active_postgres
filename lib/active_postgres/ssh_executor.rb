@@ -8,9 +8,14 @@ module ActivePostgres
 
     attr_reader :config
 
-    def initialize(config)
+    def initialize(config, quiet: false)
       @config = config
+      @quiet = quiet
       setup_sshkit
+    end
+
+    def quiet?
+      @quiet
     end
 
     def execute_on_host(host, &)
@@ -259,8 +264,13 @@ module ActivePostgres
     private
 
     def setup_sshkit
-      SSHKit.config.output_verbosity = ::Logger::INFO
-      SSHKit.config.format = :pretty
+      if @quiet
+        SSHKit.config.output_verbosity = ::Logger::FATAL
+        SSHKit.config.format = :blackhole
+      else
+        SSHKit.config.output_verbosity = ::Logger::INFO
+        SSHKit.config.format = :pretty
+      end
 
       return unless File.exist?(config.ssh_key)
 

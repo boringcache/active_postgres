@@ -155,7 +155,7 @@ namespace :postgres do
     require 'active_postgres'
 
     config = ActivePostgres::Configuration.load
-    ssh_executor = ActivePostgres::SSHExecutor.new(config)
+    ssh_executor = ActivePostgres::SSHExecutor.new(config, quiet: true)
 
     puts "\n#{'=' * 80}"
     puts 'PostgreSQL HA Cluster Topology'
@@ -198,30 +198,52 @@ namespace :postgres do
 
         begin
           ssh_executor.execute_on_host(host) do
-            status = begin
+            # Check if PostgreSQL is online
+            pg_status = begin
               capture(:pg_lsclusters, '-h').split("\n").first&.split&.[](3)
             rescue StandardError
               'unknown'
             end
-            if status =~ /online,recovery/
-              puts '      Status: ✅ Replicating'
 
-              # Check lag
-              lag = begin
-                capture(:sudo, '-u', 'postgres', 'psql', '-t', '-c',
-                        "'SELECT EXTRACT(EPOCH FROM (now() - pg_last_xact_replay_timestamp()))::int;'").strip.to_i
+            unless pg_status =~ /online/
+              puts '      Status: ❌ Offline'
+              next
+            end
+
+            # Check if in recovery mode (standby)
+            in_recovery = begin
+              result = capture(:sudo, '-u', 'postgres', 'psql', '-tA', '-c', '"SELECT pg_is_in_recovery();"')
+              result.strip == 't'
+            rescue StandardError
+              false
+            end
+
+            if in_recovery
+              # Check WAL byte lag
+              lag_bytes = begin
+                capture(:sudo, '-u', 'postgres', 'psql', '-tA', '-c',
+                        '"SELECT pg_wal_lsn_diff(pg_last_wal_receive_lsn(), pg_last_wal_replay_lsn());"').strip.to_i.abs
               rescue StandardError
                 nil
               end
-              puts format_lag_status(lag) if lag
-            elsif status =~ /online/
-              puts '      Status: ⚠️  Running but not replicating'
+
+              # Check time lag
+              lag_time = begin
+                capture(:sudo, '-u', 'postgres', 'psql', '-tA', '-c',
+                        '"SELECT EXTRACT(EPOCH FROM (now() - pg_last_xact_replay_timestamp()))::int;"').strip.to_i
+              rescue StandardError
+                nil
+              end
+
+              lag_str = lag_bytes&.zero? ? 'synced' : "#{lag_bytes} bytes behind"
+              time_str = lag_time ? "(last tx #{lag_time}s ago)" : ''
+              puts "      Status: ✅ Replicating - #{lag_str} #{time_str}".rstrip
             else
-              puts '      Status: ❌ Offline'
+              puts '      Status: ⚠️  Running but not in recovery mode'
             end
           end
         rescue StandardError => e
-          puts "      Status: ⚠️ Unknown (#{e.message})"
+          puts "      Status: ⚠️  Unknown (#{e.message})"
         end
       end
     else
@@ -514,14 +536,21 @@ namespace :postgres do
                 results[:warnings] << "#{label}: Replication not streaming"
               end
 
-              lag = capture(:sudo, '-u', 'postgres', 'psql', '-t', '-c',
-                            "'SELECT EXTRACT(EPOCH FROM (now() - pg_last_xact_replay_timestamp()))::int;'").strip.to_i
-              info "   Replication lag: #{lag}s"
-              if lag < 60
-                results[:passed] << "#{label}: Replication lag < 60s"
+              # WAL byte lag (actual replication delay)
+              byte_lag = capture(:sudo, '-u', 'postgres', 'psql', '-t', '-c',
+                                 "'SELECT pg_wal_lsn_diff(pg_last_wal_receive_lsn(), pg_last_wal_replay_lsn());'").strip.to_i
+              if byte_lag.zero?
+                info '   WAL lag: 0 bytes (fully synced) ✅'
+                results[:passed] << "#{label}: Replication fully synced"
               else
-                results[:warnings] << "#{label}: Replication lag high (#{lag}s)"
+                info "   WAL lag: #{byte_lag} bytes"
+                results[:passed] << "#{label}: Replication lag #{byte_lag} bytes"
               end
+
+              # Time since last transaction (informational only)
+              last_tx = capture(:sudo, '-u', 'postgres', 'psql', '-t', '-c',
+                                "'SELECT EXTRACT(EPOCH FROM (now() - pg_last_xact_replay_timestamp()))::int;'").strip.to_i
+              info "   Last write: #{last_tx}s ago (primary idle time)"
             else
               warn '   Recovery mode: No ❌'
               results[:failed] << "#{label}: Not in recovery mode"
@@ -536,13 +565,23 @@ namespace :postgres do
         if config.component_enabled?(:repmgr)
           puts "\n5️⃣  Repmgr"
           begin
-            repmgr_status = capture(:sudo, '-u', 'postgres', 'repmgr', 'node', 'status')
-            if repmgr_status.include?('running')
-              info '   Node status: Running ✅'
+            # Check if node is registered in cluster
+            cluster_show = capture(:sudo, '-u', 'postgres', 'repmgr', 'cluster', 'show', '2>/dev/null')
+            node_registered = cluster_show.include?(host) || cluster_show.match?(/\|\s*(primary|standby)\s*\|/)
+
+            if node_registered
+              info '   Node registered: Yes ✅'
               results[:passed] << "#{label}: Repmgr node registered"
+
+              # Check if repmgrd daemon is running (for automatic failover)
+              if test('systemctl is-active repmgrd')
+                info '   Auto-failover daemon: Running ✅'
+              else
+                warn '   Auto-failover daemon: Not running (manual failover only)'
+              end
             else
-              warn '   Node status: Not running ⚠️'
-              results[:warnings] << "#{label}: Repmgr node not running"
+              warn '   Node registered: No ⚠️'
+              results[:warnings] << "#{label}: Repmgr node not registered"
             end
           rescue StandardError => e
             warn "   ❌ Repmgr check failed: #{e.message}"
@@ -556,9 +595,9 @@ namespace :postgres do
           if test('systemctl is-active pgbouncer')
             info '   Status: Running ✅'
 
-            # Check userlist
-            if test('[ -s /etc/pgbouncer/userlist.txt ]')
-              user_count = capture(:wc, '-l', '/etc/pgbouncer/userlist.txt').split.first.to_i
+            # Check userlist (need sudo for file access)
+            if test(:sudo, 'test', '-s', '/etc/pgbouncer/userlist.txt')
+              user_count = capture(:sudo, :wc, '-l', '/etc/pgbouncer/userlist.txt').split.first.to_i
               info "   Userlist: #{user_count} user(s) configured ✅"
               results[:passed] << "#{label}: PgBouncer running with #{user_count} user(s)"
             else
@@ -624,5 +663,193 @@ namespace :postgres do
       exit 1
     end
     puts "#{'=' * 80}\n"
+  end
+
+  namespace :test do
+    desc 'Run replication stress test (creates temp DB, inserts rows, verifies replication, cleans up)'
+    task :replication, [:rows] => :environment do |_t, args|
+      require 'active_postgres'
+
+      rows = (args[:rows] || 1000).to_i
+      config = ActivePostgres::Configuration.load
+      ssh_executor = ActivePostgres::SSHExecutor.new(config, quiet: true)
+
+      puts "\n#{'=' * 60}"
+      puts '🧪 Replication Stress Test'
+      puts "#{'=' * 60}\n"
+
+      test_db = 'active_postgres_stress_test'
+      primary = config.primary_host
+      standbys = config.standby_hosts
+
+      begin
+        # Create test database
+        puts '1️⃣  Creating test database...'
+        ssh_executor.execute_on_host(primary) do
+          execute :sudo, '-u', 'postgres', 'psql', '-c', "\"DROP DATABASE IF EXISTS #{test_db};\""
+          execute :sudo, '-u', 'postgres', 'psql', '-c', "\"CREATE DATABASE #{test_db};\""
+          execute :sudo, '-u', 'postgres', 'psql', '-d', test_db, '-c',
+                  '"CREATE TABLE test_inserts (id SERIAL PRIMARY KEY, data TEXT, created_at TIMESTAMP DEFAULT NOW());"'
+        end
+        puts '   ✓ Test database created'
+
+        # Run insert stress test
+        puts "\n2️⃣  Inserting #{rows} rows on primary..."
+        start_time = Time.now
+        ssh_executor.execute_on_host(primary) do
+          execute :sudo, '-u', 'postgres', 'psql', '-d', test_db, '-c',
+                  "\"INSERT INTO test_inserts (data) SELECT md5(random()::text) FROM generate_series(1, #{rows});\""
+        end
+        insert_time = (Time.now - start_time).round(2)
+        puts "   ✓ Inserted #{rows} rows in #{insert_time}s (#{(rows / insert_time).round} rows/sec)"
+
+        # Verify on primary
+        puts "\n3️⃣  Verifying row count..."
+        primary_count = 0
+        ssh_executor.execute_on_host(primary) do
+          result = capture(:sudo, '-u', 'postgres', 'psql', '-t', '-d', test_db, '-c', '"SELECT COUNT(*) FROM test_inserts;"')
+          primary_count = result.strip.to_i
+        end
+        puts "   Primary: #{primary_count} rows"
+
+        # Wait for replication
+        sleep 1
+
+        # Verify on standbys
+        all_synced = true
+        standbys.each do |standby|
+          standby_count = 0
+          ssh_executor.execute_on_host(standby) do
+            result = capture(:sudo, '-u', 'postgres', 'psql', '-t', '-d', test_db, '-c', '"SELECT COUNT(*) FROM test_inserts;"')
+            standby_count = result.strip.to_i
+          end
+
+          if standby_count == primary_count
+            puts "   Standby #{standby}: #{standby_count} rows ✓"
+          else
+            puts "   Standby #{standby}: #{standby_count} rows ✗ (expected #{primary_count})"
+            all_synced = false
+          end
+        end
+
+        # Check replication lag
+        puts "\n4️⃣  Replication lag after test..."
+        ssh_executor.execute_on_host(primary) do
+          result = capture(:sudo, '-u', 'postgres', 'psql', '-t', '-c',
+                           '"SELECT client_addr, pg_wal_lsn_diff(pg_current_wal_lsn(), replay_lsn) as lag_bytes FROM pg_stat_replication;"')
+          result.strip.split("\n").each do |line|
+            next if line.strip.empty?
+
+            parts = line.split('|').map(&:strip)
+            puts "   #{parts[0]}: #{parts[1]} bytes"
+          end
+        end
+
+        puts "\n#{'=' * 60}"
+        if all_synced
+          puts '✅ Replication stress test PASSED!'
+        else
+          puts '❌ Replication stress test FAILED - not all standbys synced'
+        end
+        puts "#{'=' * 60}\n"
+      ensure
+        # Cleanup
+        puts "\n5️⃣  Cleaning up test database..."
+        ssh_executor.execute_on_host(primary) do
+          execute :sudo, '-u', 'postgres', 'psql', '-c', "\"DROP DATABASE IF EXISTS #{test_db};\""
+        end
+        puts '   ✓ Test database removed'
+      end
+    end
+
+    desc 'Test PgBouncer connection pooling'
+    task :pgbouncer, [:connections] => :environment do |_t, args|
+      require 'active_postgres'
+
+      connections = (args[:connections] || 50).to_i
+      config = ActivePostgres::Configuration.load
+      ssh_executor = ActivePostgres::SSHExecutor.new(config, quiet: true)
+
+      unless config.component_enabled?(:pgbouncer)
+        puts '❌ PgBouncer is not enabled in config'
+        exit 1
+      end
+
+      puts "\n#{'=' * 60}"
+      puts '🧪 PgBouncer Connection Test'
+      puts "#{'=' * 60}\n"
+
+      primary = config.primary_host
+
+      ssh_executor.execute_on_host(primary) do
+        # Check PgBouncer status
+        puts '1️⃣  PgBouncer service status:'
+        status = capture(:systemctl, 'is-active', 'pgbouncer').strip
+        puts "   Service: #{status == 'active' ? '✓ Running' : '✗ Not running'}"
+
+        # Show config
+        puts "\n2️⃣  PgBouncer configuration:"
+        config_output = capture(:sudo, :grep, '-E', '(listen_port|pool_mode|max_client|default_pool)', '/etc/pgbouncer/pgbouncer.ini')
+        config_output.split("\n").each { |line| puts "   #{line.strip}" }
+
+        # Show users
+        puts "\n3️⃣  Configured users:"
+        users = capture(:sudo, :cut, "-d'\"'", '-f2', '/etc/pgbouncer/userlist.txt')
+        users.split("\n").each { |user| puts "   - #{user.strip}" unless user.strip.empty? }
+
+        # Test direct PostgreSQL (port 5432)
+        puts "\n4️⃣  Direct PostgreSQL test (port 5432):"
+        begin
+          execute :sudo, '-u', 'postgres', 'psql', '-p', '5432', '-c', '"SELECT 1;"'
+          puts '   ✓ Direct connection works'
+        rescue StandardError
+          puts '   ✗ Direct connection failed'
+        end
+
+        # Test PgBouncer (port 6432)
+        puts "\n5️⃣  PgBouncer connection test (port 6432):"
+        begin
+          execute :sudo, '-u', 'postgres', 'psql', '-h', '127.0.0.1', '-p', '6432', '-d', 'postgres', '-c', '"SELECT 1;"'
+          puts '   ✓ PgBouncer connection works'
+        rescue StandardError => e
+          puts "   ⚠️  PgBouncer connection test: #{e.message.split("\n").first}"
+        end
+
+        # Stress test - multiple concurrent connections
+        puts "\n6️⃣  Connection stress test (#{connections} concurrent connections via PgBouncer):"
+        begin
+          # Use pgbench for stress testing
+          if test('which pgbench')
+            execute :sudo, '-u', 'postgres', 'pgbench', '-i', '-s', '1', '-p', '6432', '-h', '127.0.0.1', 'postgres', '2>/dev/null', '||', 'true'
+            result = capture(:sudo, '-u', 'postgres', 'pgbench', '-c', connections.to_s, '-j', '4', '-t', '10',
+                             '-p', '6432', '-h', '127.0.0.1', 'postgres', '2>&1')
+            tps_match = result.match(/tps = ([\d.]+)/)
+            if tps_match
+              puts "   ✓ Stress test completed: #{tps_match[1]} TPS"
+            else
+              puts '   ✓ Stress test completed'
+            end
+          else
+            puts '   ⚠️  pgbench not installed, skipping stress test'
+          end
+        rescue StandardError => e
+          puts "   ⚠️  Stress test failed: #{e.message.split("\n").first}"
+        end
+
+        # Show pool stats
+        puts "\n7️⃣  Pool statistics:"
+        begin
+          stats = capture(:sudo, '-u', 'postgres', 'psql', '-h', '127.0.0.1', '-p', '6432', '-d', 'pgbouncer',
+                          '-c', '"SHOW POOLS;"', '2>/dev/null')
+          stats.split("\n").each { |line| puts "   #{line}" }
+        rescue StandardError
+          puts '   ⚠️  Could not fetch pool stats'
+        end
+
+        puts "\n#{'=' * 60}"
+        puts '✅ PgBouncer test complete'
+        puts "#{'=' * 60}\n"
+      end
+    end
   end
 end

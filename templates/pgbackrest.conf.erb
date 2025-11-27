@@ -1,19 +1,39 @@
 [global]
-repo1-path=<%= pgbackrest_config[:repo_path] || '/var/lib/pgbackrest' %>
 <% if pgbackrest_config[:repo_type] == 's3' %>
 repo1-type=s3
+repo1-path=<%= pgbackrest_config[:repo_path] || '/backups' %>
 repo1-s3-bucket=<%= pgbackrest_config[:s3_bucket] %>
-repo1-s3-region=<%= pgbackrest_config[:s3_region] %>
-repo1-s3-endpoint=s3.<%= pgbackrest_config[:s3_region] %>.amazonaws.com
+repo1-s3-region=<%= pgbackrest_config[:s3_region] || 'us-east-1' %>
+<% if pgbackrest_config[:s3_endpoint] %>
+# Custom S3-compatible endpoint (DigitalOcean Spaces, Backblaze B2, Wasabi, MinIO, etc.)
+repo1-s3-endpoint=<%= pgbackrest_config[:s3_endpoint] %>
+repo1-s3-uri-style=<%= pgbackrest_config[:s3_uri_style] || 'path' %>
+<% else %>
+# AWS S3
+repo1-s3-endpoint=s3.<%= pgbackrest_config[:s3_region] || 'us-east-1' %>.amazonaws.com
+<% end %>
+<% if secrets_obj.resolve('s3_access_key') %>
+repo1-s3-key=<%= secrets_obj.resolve('s3_access_key') %>
+repo1-s3-key-secret=<%= secrets_obj.resolve('s3_secret_key') %>
+<% end %>
+<% else %>
+# Local storage
+repo1-path=<%= pgbackrest_config[:repo_path] || '/var/lib/pgbackrest' %>
 <% end %>
 
 # Retention
 repo1-retention-full=<%= pgbackrest_config[:retention_full] || 7 %>
 repo1-retention-archive=<%= pgbackrest_config[:retention_archive] || 14 %>
 
-# Compression and encryption
+# Compression
 compress-type=lz4
 compress-level=3
+
+<% if pgbackrest_config[:encryption] %>
+# Encryption (recommended for cloud storage)
+repo1-cipher-type=aes-256-cbc
+repo1-cipher-pass=<%= secrets_obj.resolve('backup_encryption_key') %>
+<% end %>
 
 [main]
 pg1-path=/var/lib/postgresql/<%= config.version %>/main
