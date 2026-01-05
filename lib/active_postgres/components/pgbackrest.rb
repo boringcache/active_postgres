@@ -4,14 +4,22 @@ module ActivePostgres
       def install
         puts 'Installing pgBackRest for backups...'
 
-        install_on_host(config.primary_host)
+        # Install on primary with full setup (stanza-create)
+        install_on_host(config.primary_host, create_stanza: true)
+
+        # Install on standbys (package + config only, no stanza-create)
+        config.standby_hosts.each do |host|
+          install_on_host(host, create_stanza: false)
+        end
       end
 
       def uninstall
         puts 'Uninstalling pgBackRest...'
 
-        ssh_executor.execute_on_host(config.primary_host) do
-          execute :sudo, 'apt-get', 'remove', '-y', 'pgbackrest'
+        config.all_hosts.each do |host|
+          ssh_executor.execute_on_host(host) do
+            execute :sudo, 'apt-get', 'remove', '-y', 'pgbackrest'
+          end
         end
       end
 
@@ -55,7 +63,7 @@ module ActivePostgres
 
       private
 
-      def install_on_host(host)
+      def install_on_host(host, create_stanza: true)
         puts "  Installing pgBackRest on #{host}..."
 
         pgbackrest_config = config.component_config(:pgbackrest)
@@ -86,7 +94,10 @@ module ActivePostgres
           execute :sudo, 'mkdir', '-p', '/var/spool/pgbackrest'
           execute :sudo, 'chown', "#{postgres_user}:#{postgres_user}", '/var/spool/pgbackrest'
 
-          execute :sudo, '-u', postgres_user, 'pgbackrest', '--stanza=main', 'stanza-create'
+          # Only create stanza on primary - standbys share the same backup repo
+          if create_stanza
+            execute :sudo, '-u', postgres_user, 'pgbackrest', '--stanza=main', 'stanza-create'
+          end
         end
       end
     end

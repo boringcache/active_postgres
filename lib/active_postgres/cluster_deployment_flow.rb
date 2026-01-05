@@ -54,6 +54,9 @@ module ActivePostgres
 
       # Create application users AFTER repmgr to avoid being wiped by cluster recreation
       create_application_users_if_configured
+
+      # Update pgbouncer userlist AFTER app users are created so they can authenticate
+      update_pgbouncer_userlist if config.component_enabled?(:pgbouncer)
     end
 
     def list_next_steps
@@ -80,6 +83,13 @@ module ActivePostgres
     def create_application_users_if_configured
       core_component = Components::Core.new(config, ssh_executor, secrets)
       core_component.create_application_users
+    end
+
+    def update_pgbouncer_userlist
+      logger.task('Updating PgBouncer userlist with app users') do
+        component = Components::PgBouncer.new(config, ssh_executor, secrets)
+        component.update_userlist
+      end
     end
   end
 end

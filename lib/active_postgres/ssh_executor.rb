@@ -280,7 +280,9 @@ module ActivePostgres
           keys_only: true,
           forward_agent: false,
           auth_methods: ['publickey'],
-          verify_host_key: :never
+          verify_host_key: :never,
+          timeout: 10,
+          number_of_password_prompts: 0
         }
       end
     end

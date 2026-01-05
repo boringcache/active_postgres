@@ -4,25 +4,47 @@ module ActivePostgres
       def install
         puts 'Installing PgBouncer for connection pooling...'
 
-        # Install on primary (can also install on standbys if needed)
-        install_on_host(config.primary_host)
+        config.all_hosts.each do |host|
+          install_on_host(host)
+        end
       end
 
       def uninstall
         puts 'Uninstalling PgBouncer...'
 
-        ssh_executor.execute_on_host(config.primary_host) do
-          execute :sudo, 'systemctl', 'stop', 'pgbouncer'
-          execute :sudo, 'apt-get', 'remove', '-y', 'pgbouncer'
+        config.all_hosts.each do |host|
+          ssh_executor.execute_on_host(host) do
+            execute :sudo, 'systemctl', 'stop', 'pgbouncer'
+            execute :sudo, 'apt-get', 'remove', '-y', 'pgbouncer'
+          end
         end
       end
 
       def restart
         puts 'Restarting PgBouncer...'
 
-        ssh_executor.execute_on_host(config.primary_host) do
-          execute :sudo, 'systemctl', 'restart', 'pgbouncer'
+        config.all_hosts.each do |host|
+          ssh_executor.execute_on_host(host) do
+            execute :sudo, 'systemctl', 'restart', 'pgbouncer'
+          end
         end
+      end
+
+      def update_userlist
+        puts 'Updating PgBouncer userlist on all hosts...'
+
+        config.all_hosts.each do |host|
+          create_userlist(host)
+
+          ssh_executor.execute_on_host(host) do
+            execute :sudo, 'systemctl', 'reload', 'pgbouncer'
+          end
+        end
+      end
+
+      def install_on_standby(standby_host)
+        puts "Installing PgBouncer on standby #{standby_host}..."
+        install_on_host(standby_host)
       end
 
       private

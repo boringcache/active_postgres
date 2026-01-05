@@ -51,6 +51,27 @@ module ActivePostgres
         end
       end
 
+      # Check pgbouncer on all hosts
+      if config.component_enabled?(:pgbouncer)
+        puts
+        puts '==> Checking PgBouncer...'
+        config.all_hosts.each do |host|
+          print "PgBouncer (#{host})... "
+          pgbouncer_ok = check_pgbouncer_running(host)
+          userlist_ok = check_pgbouncer_userlist(host)
+
+          if pgbouncer_ok && userlist_ok
+            puts '✓'
+          elsif pgbouncer_ok && !userlist_ok
+            puts '✗ (missing app user in userlist)'
+            all_ok = false
+          else
+            puts '✗'
+            all_ok = false
+          end
+        end
+      end
+
       puts
       if all_ok
         puts '✓ All checks passed'
@@ -99,7 +120,8 @@ module ActivePostgres
         label: primary_config&.dig('label') || '-',
         status: check_postgres_running(config.primary_host) ? '✓ running' : '✗ down',
         connections: get_connection_count(config.primary_host),
-        lag: '-'
+        lag: '-',
+        pgbouncer: check_pgbouncer_status(config.primary_host)
       }
 
       # Standbys
@@ -114,7 +136,8 @@ module ActivePostgres
           label: standby_config&.dig('label') || '-',
           status: running ? '✓ streaming' : '✗ down',
           connections: running ? get_connection_count(host) : 0,
-          lag: running ? get_replication_lag(host) : '-'
+          lag: running ? get_replication_lag(host) : '-',
+          pgbouncer: check_pgbouncer_status(host)
         }
       end
 
@@ -128,7 +151,7 @@ module ActivePostgres
     end
 
     def calculate_column_widths(nodes)
-      {
+      cols = {
         role: [4, nodes.map { |n| n[:role].length }.max].max,
         host: [4, nodes.map { |n| n[:host].length }.max].max,
         private_ip: [10, nodes.map { |n| n[:private_ip].to_s.length }.max].max,
@@ -137,12 +160,25 @@ module ActivePostgres
         conn: 5,
         lag: [3, nodes.map { |n| n[:lag].to_s.length }.max].max
       }
+
+      if config.component_enabled?(:pgbouncer)
+        cols[:pgbouncer] = [9, nodes.map { |n| n[:pgbouncer].to_s.length }.max].max
+      end
+
+      cols
     end
 
     def print_table_header(cols)
       fmt = "%-#{cols[:role]}s  %-#{cols[:host]}s  %-#{cols[:private_ip]}s  " \
             "%-#{cols[:label]}s  %-#{cols[:status]}s  %#{cols[:conn]}s  %#{cols[:lag]}s"
-      header = format(fmt, 'Role', 'Host', 'Private IP', 'Label', 'Status', 'Conn', 'Lag')
+      headers = %w[Role Host Private\ IP Label Status Conn Lag]
+
+      if cols[:pgbouncer]
+        fmt += "  %-#{cols[:pgbouncer]}s"
+        headers << 'PgBouncer'
+      end
+
+      header = format(fmt, *headers)
       puts header
       puts '-' * header.length
     end
@@ -150,8 +186,15 @@ module ActivePostgres
     def print_table_row(node, cols)
       fmt = "%-#{cols[:role]}s  %-#{cols[:host]}s  %-#{cols[:private_ip]}s  " \
             "%-#{cols[:label]}s  %-#{cols[:status]}s  %#{cols[:conn]}d  %#{cols[:lag]}s"
-      puts format(fmt, node[:role], node[:host], node[:private_ip], node[:label],
-                  node[:status], node[:connections], node[:lag])
+      values = [node[:role], node[:host], node[:private_ip], node[:label],
+                node[:status], node[:connections], node[:lag]]
+
+      if cols[:pgbouncer]
+        fmt += "  %-#{cols[:pgbouncer]}s"
+        values << node[:pgbouncer]
+      end
+
+      puts format(fmt, *values)
     end
 
     def print_components
@@ -239,6 +282,38 @@ module ActivePostgres
 
       mb = kb / 1024.0
       "#{mb.round(1)} MB"
+    end
+
+    def check_pgbouncer_status(host)
+      return '-' unless config.component_enabled?(:pgbouncer)
+
+      ssh_executor.execute_on_host(host) do
+        result = capture(:sudo, 'systemctl', 'is-active', 'pgbouncer').strip
+        result == 'active' ? '✓ running' : '✗ down'
+      end
+    rescue StandardError
+      '✗ down'
+    end
+
+    def check_pgbouncer_running(host)
+      ssh_executor.execute_on_host(host) do
+        result = capture(:sudo, 'systemctl', 'is-active', 'pgbouncer').strip
+        result == 'active'
+      end
+    rescue StandardError
+      false
+    end
+
+    def check_pgbouncer_userlist(host)
+      app_user = config.app_user
+      return true unless app_user # No app user configured, skip check
+
+      ssh_executor.execute_on_host(host) do
+        userlist = capture(:sudo, 'cat', '/etc/pgbouncer/userlist.txt').strip
+        userlist.include?(app_user)
+      end
+    rescue StandardError
+      false
     end
   end
 end

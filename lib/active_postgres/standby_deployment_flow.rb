@@ -95,7 +95,7 @@ module ActivePostgres
     def deploy_pgbouncer
       logger.task('Setting up pgbouncer on standby') do
         component = Components::PgBouncer.new(config, ssh_executor, secrets)
-        component.install_on_standby(standby_host) if component.respond_to?(:install_on_standby)
+        component.install_on_standby(standby_host)
       end
     end
 

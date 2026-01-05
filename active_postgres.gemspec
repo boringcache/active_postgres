@@ -21,6 +21,7 @@ Gem::Specification.new do |spec|
 
   spec.files = Dir.glob(%w[
                           lib/**/*.rb
+                          lib/**/*.erb
                           lib/tasks/**/*.rake
                           templates/**/*
                           exe/*
