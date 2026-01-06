@@ -75,11 +75,11 @@ production:
       enabled: false  # Enable for HA with standbys
   
   # Secrets: Using Rails credentials (update via: rails credentials:edit)
-  # The $(command) syntax allows executing commands to fetch secrets
+  # The rails_credentials: prefix fetches values from Rails.application.credentials
   secrets:
-    superuser_password: $(rails runner "puts Rails.application.credentials.dig(:postgres, :superuser_password)")
-    replication_password: $(rails runner "puts Rails.application.credentials.dig(:postgres, :replication_password)")
-    repmgr_password: $(rails runner "puts Rails.application.credentials.dig(:postgres, :repmgr_password)")
-    pgbouncer_password: $(rails runner "puts Rails.application.credentials.dig(:postgres, :password)")
-    app_password: $(rails runner "puts Rails.application.credentials.dig(:postgres, :password)")
+    superuser_password: rails_credentials:postgres.superuser_password
+    replication_password: rails_credentials:postgres.replication_password
+    repmgr_password: rails_credentials:postgres.repmgr_password
+    pgbouncer_password: rails_credentials:postgres.password
+    app_password: rails_credentials:postgres.password
 

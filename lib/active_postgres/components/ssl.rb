@@ -14,7 +14,6 @@ module ActivePostgres
       end
 
       def restart
-        # SSL doesn't have its own service, restart PostgreSQL
         ssh_executor.restart_postgres(config.primary_host)
 
         config.standby_hosts.each do |host|
@@ -37,7 +36,6 @@ module ActivePostgres
 
         ssh_executor.ensure_postgres_user(host)
 
-        # Ensure the PostgreSQL config directory exists
         ssh_executor.execute_on_host(host) do
           execute :sudo, 'mkdir', '-p', "/etc/postgresql/#{version}/main"
           execute :sudo, 'chown', 'postgres:postgres', "/etc/postgresql/#{version}/main"
@@ -47,15 +45,29 @@ module ActivePostgres
         ssl_key = secrets.resolve('ssl_key')
 
         if ssl_cert && ssl_key
-          puts '  Using SSL certificates from secrets...'
-          ssh_executor.upload_file(host, ssl_cert, "/etc/postgresql/#{version}/main/server.crt", mode: '644',
-                                                                                                 owner: 'postgres:postgres')
-          ssh_executor.upload_file(host, ssl_key, "/etc/postgresql/#{version}/main/server.key", mode: '600',
-                                                                                                owner: 'postgres:postgres')
+          install_custom_cert(host, ssl_cert, ssl_key, ssl_config)
         else
           puts '  Generating self-signed SSL certificates...'
           generate_self_signed_cert(host, ssl_config)
         end
+      end
+
+      def install_custom_cert(host, ssl_cert, ssl_key, _ssl_config)
+        version = config.version
+        ssl_chain = secrets.resolve('ssl_chain')
+
+        puts '  Using SSL certificates from secrets...'
+
+        full_cert = if ssl_chain
+                      "#{ssl_cert.strip}\n#{ssl_chain.strip}\n"
+                    else
+                      ssl_cert
+                    end
+
+        ssh_executor.upload_file(host, full_cert, "/etc/postgresql/#{version}/main/server.crt",
+                                 mode: '644', owner: 'postgres:postgres')
+        ssh_executor.upload_file(host, ssl_key, "/etc/postgresql/#{version}/main/server.key",
+                                 mode: '600', owner: 'postgres:postgres')
       end
 
       def generate_self_signed_cert(host, ssl_config)

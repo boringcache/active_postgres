@@ -235,53 +235,28 @@ production:
 
   # Secrets (choose one method and use consistently)
   secrets:
-    # Method 1: Environment variables (recommended for CI/CD)
-    superuser_password: $POSTGRES_SUPERUSER_PASSWORD
-    replication_password: $POSTGRES_REPLICATION_PASSWORD
-    repmgr_password: $POSTGRES_REPMGR_PASSWORD
-    pgbouncer_password: $POSTGRES_PGBOUNCER_PASSWORD
-    app_password: $POSTGRES_APP_PASSWORD
-    
-    # Method 2: Cached local files (after running: active_postgres cache-secrets)
-    # superuser_password: $(cat .secrets/superuser_password)
-    # replication_password: $(cat .secrets/replication_password)
-    # repmgr_password: $(cat .secrets/repmgr_password)
-    # pgbouncer_password: $(cat .secrets/pgbouncer_password)
-    # app_password: $(cat .secrets/app_password)
-    
+    # Method 1: Rails credentials (recommended for Rails apps)
+    # Uses rails_credentials: prefix to fetch from Rails.application.credentials
+    superuser_password: rails_credentials:postgres.superuser_password
+    replication_password: rails_credentials:postgres.replication_password
+    repmgr_password: rails_credentials:postgres.repmgr_password
+    pgbouncer_password: rails_credentials:postgres.pgbouncer_password
+    app_password: rails_credentials:postgres.password
+
+    # Method 2: Environment variables (recommended for CI/CD)
+    # superuser_password: $POSTGRES_SUPERUSER_PASSWORD
+    # replication_password: $POSTGRES_REPLICATION_PASSWORD
+    # repmgr_password: $POSTGRES_REPMGR_PASSWORD
+    # pgbouncer_password: $POSTGRES_PGBOUNCER_PASSWORD
+    # app_password: $POSTGRES_APP_PASSWORD
+
     # Method 3: 1Password CLI (install: brew install 1password-cli)
-    # superuser_password: $(op read "op://BoringCache/postgres-superuser/password")
-    # replication_password: $(op read "op://BoringCache/postgres-replication/password")
-    # repmgr_password: $(op read "op://BoringCache/postgres-repmgr/password")
-    # pgbouncer_password: $(op read "op://BoringCache/postgres-pgbouncer/password")
-    # app_password: $(op read "op://BoringCache/postgres-app/password")
-    
-    # Method 4: Rails credentials (if using Rails)
-    # superuser_password: $(rails credentials:show | yq .postgres.superuser_password)
-    # replication_password: $(rails credentials:show | yq .postgres.replication_password)
-    # repmgr_password: $(rails credentials:show | yq .postgres.repmgr_password)
-    # pgbouncer_password: $(rails credentials:show | yq .postgres.pgbouncer_password)
-    # app_password: $(rails credentials:show | yq .postgres.app_password)
-    
+    # superuser_password: $(op read "op://Vault/postgres-superuser/password")
+    # replication_password: $(op read "op://Vault/postgres-replication/password")
+
     # SSL certificates (if ssl component enabled)
-    # Method 1: Environment variables
-    # ssl_cert: $POSTGRES_SSL_CERT
-    # ssl_key: $POSTGRES_SSL_KEY
-    # ssl_ca: $POSTGRES_SSL_CA
-    
-    # Method 2: Cached local files
-    # ssl_cert: $(cat .secrets/ssl_cert)
-    # ssl_key: $(cat .secrets/ssl_key)
-    # ssl_ca: $(cat .secrets/ssl_ca)
-    
-    # Method 3: 1Password CLI
-    # ssl_cert: $(op read "op://BoringCache/postgres-ssl/certificate")
-    # ssl_key: $(op read "op://BoringCache/postgres-ssl/private_key")
-    # ssl_ca: $(op read "op://BoringCache/postgres-ssl/ca_certificate")
-    
-    # Method 4: Rails credentials
-    # ssl_cert: $(rails credentials:show | yq .postgres.ssl.cert)
-    # ssl_key: $(rails credentials:show | yq .postgres.ssl.key)
-    # ssl_ca: $(rails credentials:show | yq .postgres.ssl.ca)
+    # ssl_cert: rails_credentials:postgres.ssl.cert
+    # ssl_key: rails_credentials:postgres.ssl.key
+    # ssl_ca: rails_credentials:postgres.ssl.ca
 
 

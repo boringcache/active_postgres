@@ -11,11 +11,16 @@ module ActivePostgres
         # See: create_application_user_and_database method called from deployment flow
 
         # Install on standbys
-        # If repmgr is enabled, only install packages (cluster will be cloned by repmgr)
-        # If repmgr is disabled, install everything including cluster creation
         config.standby_hosts.each do |host|
           if config.component_enabled?(:repmgr)
-            install_packages_only(host)
+            # Check if cluster already exists (config update vs fresh install)
+            if cluster_exists?(host)
+              # Existing cluster - just update configs
+              update_configs_on_host(host)
+            else
+              # Fresh install - only install packages, repmgr will clone the cluster
+              install_packages_only(host)
+            end
           else
             install_on_host(host, is_primary: false)
           end
@@ -62,6 +67,10 @@ module ActivePostgres
                     else
                       component_config[:postgresql] || {}
                     end
+
+        # Substitute ${private_ip} with the host's actual private IP
+        private_ip = config.replication_host_for(host)
+        pg_config = substitute_private_ip(pg_config, private_ip)
         _ = pg_config # Used in ERB template
 
         upload_template(host, 'postgresql.conf.erb', "/etc/postgresql/#{config.version}/main/postgresql.conf", binding,
@@ -87,9 +96,97 @@ module ActivePostgres
         optimal_settings.merge(user_postgresql)
       end
 
+      def substitute_private_ip(pg_config, private_ip)
+        pg_config.transform_values do |value|
+          if value.is_a?(String)
+            value.gsub('${private_ip}', private_ip)
+          else
+            value
+          end
+        end
+      end
+
       def install_packages_only(host)
         puts "  Installing packages on #{host} (cluster will be created by repmgr)..."
         ssh_executor.install_postgres(host, config.version)
+      end
+
+      def cluster_exists?(host)
+        exists = false
+        version = config.version
+        ssh_executor.execute_on_host(host) do
+          exists = test(:sudo, 'test', '-d', "/var/lib/postgresql/#{version}/main/base")
+        end
+        exists
+      end
+
+      def update_configs_on_host(host)
+        puts "  Updating configs on #{host}..."
+
+        component_config = config.component_config(:core)
+
+        pg_config = if config.component_enabled?(:performance_tuning)
+                      tuned = calculate_tuned_settings(host, component_config)
+                      # Standbys must have replication-critical settings >= primary
+                      ensure_standby_compatible(tuned)
+                    else
+                      component_config[:postgresql] || {}
+                    end
+
+        private_ip = config.replication_host_for(host)
+        pg_config = substitute_private_ip(pg_config, private_ip)
+        _ = pg_config
+
+        upload_template(host, 'postgresql.conf.erb', "/etc/postgresql/#{config.version}/main/postgresql.conf", binding,
+                        owner: 'postgres:postgres')
+        upload_template(host, 'pg_hba.conf.erb', "/etc/postgresql/#{config.version}/main/pg_hba.conf", binding,
+                        owner: 'postgres:postgres')
+
+        ssh_executor.restart_postgres(host, config.version)
+      end
+
+      def ensure_standby_compatible(pg_config)
+        primary_settings = get_primary_replication_settings
+        return pg_config if primary_settings.empty?
+
+        adjustments = []
+
+        %i[max_connections max_worker_processes max_wal_senders
+           max_prepared_transactions max_locks_per_transaction].each do |setting|
+          primary_val = primary_settings[setting]
+          next unless primary_val
+
+          current_val = pg_config[setting]
+          if current_val.nil? || current_val.to_i < primary_val.to_i
+            adjustments << "#{setting}: #{current_val || 'unset'} → #{primary_val}"
+            pg_config[setting] = primary_val
+          end
+        end
+
+        if adjustments.any?
+          puts "  ⚠️  Adjusting standby settings to match primary minimum:"
+          adjustments.each { |adj| puts "      #{adj}" }
+        end
+
+        pg_config
+      end
+
+      def get_primary_replication_settings
+        @primary_replication_settings ||= begin
+          settings = {}
+          sql = "SELECT name || '=' || setting FROM pg_settings WHERE name IN ('max_connections', 'max_worker_processes', 'max_wal_senders', 'max_prepared_transactions', 'max_locks_per_transaction')"
+          result = ssh_executor.run_sql(config.primary_host, sql)
+          result.strip.split("\n").each do |line|
+            name, val = line.split('=')
+            next unless name && val
+
+            settings[name.strip.to_sym] = val.strip.to_i
+          end
+          settings
+        rescue StandardError => e
+          puts "  Warning: Could not get primary settings: #{e.message}"
+          {}
+        end
       end
 
       def create_app_user_and_database(host)

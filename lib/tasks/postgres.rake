@@ -336,6 +336,24 @@ namespace :postgres do
   end
 
   namespace :setup do
+    desc 'Setup only core PostgreSQL (updates postgresql.conf and pg_hba.conf)'
+    task core: :environment do
+      require 'active_postgres'
+
+      config = ActivePostgres::Configuration.load
+      installer = ActivePostgres::Installer.new(config)
+      installer.setup_component('core')
+    end
+
+    desc 'Setup only SSL certificates'
+    task ssl: :environment do
+      require 'active_postgres'
+
+      config = ActivePostgres::Configuration.load
+      installer = ActivePostgres::Installer.new(config)
+      installer.setup_component('ssl')
+    end
+
     desc 'Setup only PgBouncer'
     task pgbouncer: :environment do
       require 'active_postgres'
@@ -508,6 +526,18 @@ namespace :postgres do
           key_valid = test('[ -f /etc/postgresql/*/main/server.key ]')
           if cert_valid && key_valid
             info '   Certificates: Present ✅'
+            cert_issuer = begin
+              capture(:sudo, 'openssl', 'x509', '-in', "/etc/postgresql/#{config.version}/main/server.crt",
+                      '-noout', '-issuer', '2>/dev/null').strip
+            rescue StandardError
+              nil
+            end
+            if cert_issuer
+              issuer_o = cert_issuer.match(/O\s*=\s*"?([^",\/]+)"?/)&.captures&.first
+              issuer_cn = cert_issuer.match(/CN\s*=\s*([^,\/]+)/)&.captures&.first
+              issuer_name = issuer_o || issuer_cn || cert_issuer.sub('issuer=', '')
+              info "   Issuer: #{issuer_name.strip}"
+            end
             results[:passed] << "#{label}: SSL enabled with certificates"
           else
             warn '   Certificates: Missing ⚠️'
