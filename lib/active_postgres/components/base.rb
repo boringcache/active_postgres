@@ -23,6 +23,16 @@ module ActivePostgres
 
       protected
 
+      def substitute_private_ip(pg_config, private_ip)
+        pg_config.transform_values do |value|
+          if value.is_a?(String)
+            value.gsub('${private_ip}', private_ip)
+          else
+            value
+          end
+        end
+      end
+
       def render_template(template_name, binding_context)
         template_path = File.join(ActivePostgres.root, 'templates', template_name)
         template = ERB.new(File.read(template_path), trim_mode: '-')

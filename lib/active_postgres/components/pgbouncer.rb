@@ -52,34 +52,47 @@ module ActivePostgres
       def install_on_host(host)
         puts "  Installing PgBouncer on #{host}..."
 
-        # Get user config
         user_config = config.component_config(:pgbouncer)
 
-        # Calculate optimal pool settings based on PostgreSQL max_connections
         max_connections = get_postgres_max_connections(host)
         optimal_pool = ConnectionPooler.calculate_optimal_pool_sizes(max_connections)
 
-        # Merge: user config overrides calculated settings
         pgbouncer_config = optimal_pool.merge(user_config)
-        _ = pgbouncer_config # Used in ERB template
+        ssl_enabled = config.component_enabled?(:ssl)
 
         puts "  Calculated pool settings for max_connections=#{max_connections}"
 
-        # Install package
         ssh_executor.execute_on_host(host) do
           execute :sudo, 'apt-get', 'install', '-y', '-qq', 'pgbouncer'
         end
 
-        # Upload configuration
         upload_template(host, 'pgbouncer.ini.erb', '/etc/pgbouncer/pgbouncer.ini', binding, mode: '644')
 
-        # Create userlist with postgres superuser and app user
+        setup_ssl_certs(host) if ssl_enabled
+
         create_userlist(host)
 
-        # Enable and start
         ssh_executor.execute_on_host(host) do
           execute :sudo, 'systemctl', 'enable', 'pgbouncer'
           execute :sudo, 'systemctl', 'restart', 'pgbouncer'
+        end
+      end
+
+      def setup_ssl_certs(host)
+        puts '  Setting up SSL certificates for PgBouncer...'
+        version = config.version
+
+        ssh_executor.execute_on_host(host) do
+          execute :sudo, 'cp', "/etc/postgresql/#{version}/main/server.crt", '/etc/pgbouncer/server.crt'
+          execute :sudo, 'cp', "/etc/postgresql/#{version}/main/server.key", '/etc/pgbouncer/server.key'
+          execute :sudo, 'chmod', '640', '/etc/pgbouncer/server.key'
+          execute :sudo, 'chown', 'postgres:postgres', '/etc/pgbouncer/server.key'
+          execute :sudo, 'chown', 'postgres:postgres', '/etc/pgbouncer/server.crt'
+        end
+
+        ssl_chain = secrets.resolve('ssl_chain')
+        if ssl_chain
+          ssh_executor.upload_file(host, ssl_chain, '/etc/pgbouncer/ca.crt', mode: '644', owner: 'postgres:postgres')
         end
       end
 

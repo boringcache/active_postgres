@@ -96,16 +96,6 @@ module ActivePostgres
         optimal_settings.merge(user_postgresql)
       end
 
-      def substitute_private_ip(pg_config, private_ip)
-        pg_config.transform_values do |value|
-          if value.is_a?(String)
-            value.gsub('${private_ip}', private_ip)
-          else
-            value
-          end
-        end
-      end
-
       def install_packages_only(host)
         puts "  Installing packages on #{host} (cluster will be created by repmgr)..."
         ssh_executor.install_postgres(host, config.version)

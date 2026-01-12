@@ -44,6 +44,14 @@ log_connections = <%= pgbouncer_config[:log_connections] || 1 %>
 log_disconnections = <%= pgbouncer_config[:log_disconnections] || 1 %>
 log_pooler_errors = <%= pgbouncer_config[:log_pooler_errors] || 1 %>
 
+<% if ssl_enabled %>
+# Client TLS (incoming connections from Rails)
+client_tls_sslmode = require
+client_tls_key_file = /etc/pgbouncer/server.key
+client_tls_cert_file = /etc/pgbouncer/server.crt
+client_tls_ca_file = /etc/pgbouncer/ca.crt
+<% end %>
+
 # Process management
 <% if pgbouncer_config[:pidfile] %>
 pidfile = <%= pgbouncer_config[:pidfile] %>

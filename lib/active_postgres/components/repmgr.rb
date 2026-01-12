@@ -107,6 +107,9 @@ module ActivePostgres
 
         # Performance tuning is handled by the Core component
         pg_config = component_config[:postgresql] || {}
+        # Substitute ${private_ip} with the host's actual private IP
+        private_ip = config.replication_host_for(host)
+        pg_config = substitute_private_ip(pg_config, private_ip)
         _ = pg_config # Used in ERB template
 
         upload_template(host, 'postgresql.conf.erb', "/etc/postgresql/#{version}/main/postgresql.conf", binding,
@@ -307,6 +310,9 @@ module ActivePostgres
 
         # Performance tuning is handled by the Core component
         pg_config = component_config[:postgresql] || {}
+        # Substitute ${private_ip} with the standby's actual private IP
+        private_ip = config.replication_host_for(standby_host)
+        pg_config = substitute_private_ip(pg_config, private_ip)
         _ = pg_config # Used in ERB template
 
         ssh_executor.execute_on_host(standby_host) do
