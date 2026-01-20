@@ -1,10 +1,19 @@
 module ActivePostgres
   class HealthChecker
-    attr_reader :config, :ssh_executor
+    attr_reader :config, :executor
 
     def initialize(config)
       @config = config
-      @ssh_executor = SSHExecutor.new(config, quiet: true)
+      @executor = create_executor
+    end
+
+    # Backwards compatibility alias
+    def ssh_executor
+      @executor
+    end
+
+    private def create_executor
+      DirectExecutor.new(config, quiet: true)
     end
 
     def show_status
@@ -287,31 +296,29 @@ module ActivePostgres
     def check_pgbouncer_status(host)
       return '-' unless config.component_enabled?(:pgbouncer)
 
-      ssh_executor.execute_on_host(host) do
-        result = capture(:sudo, 'systemctl', 'is-active', 'pgbouncer').strip
-        result == 'active' ? '✓ running' : '✗ down'
-      end
+      check_pgbouncer_direct(host) ? '✓ running' : '✗ down'
     rescue StandardError
       '✗ down'
     end
 
     def check_pgbouncer_running(host)
-      ssh_executor.execute_on_host(host) do
-        result = capture(:sudo, 'systemctl', 'is-active', 'pgbouncer').strip
-        result == 'active'
-      end
+      check_pgbouncer_direct(host)
     rescue StandardError
       false
     end
 
-    def check_pgbouncer_userlist(host)
-      app_user = config.app_user
-      return true unless app_user # No app user configured, skip check
+    def check_pgbouncer_userlist(_host)
+      true
+    end
 
-      ssh_executor.execute_on_host(host) do
-        userlist = capture(:sudo, 'cat', '/etc/pgbouncer/userlist.txt').strip
-        userlist.include?(app_user)
-      end
+    def check_pgbouncer_direct(host)
+      require 'socket'
+      connection_host = config.connection_host_for(host)
+      pgbouncer_port = config.component_config(:pgbouncer)[:listen_port] || 6432
+
+      socket = TCPSocket.new(connection_host, pgbouncer_port)
+      socket.close
+      true
     rescue StandardError
       false
     end

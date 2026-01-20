@@ -8,7 +8,6 @@ module ActivePostgres
       @environment = environment
       env_config = config_hash[environment] || {}
 
-      # Check if deployment should be skipped (e.g., for development)
       @skip_deployment = env_config['skip_deployment'] == true
 
       @version = env_config['version'] || 18
@@ -63,6 +62,16 @@ module ActivePostgres
     def replication_host_for(host)
       node = node_config_for(host)
       private_ip_for(node) || host
+    end
+
+    # Returns the host to use for direct PostgreSQL connections (private_ip preferred)
+    def connection_host_for(host)
+      node = node_config_for(host)
+      private_ip_for(node) || host
+    end
+
+    def primary_connection_host
+      connection_host_for(primary_host)
     end
 
     def standby_config_for(host)

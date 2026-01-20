@@ -173,6 +173,7 @@ development:
 # Staging (single primary with one standby)
 staging:
   <<: *shared
+
   primary:
     host: 34.12.234.81       # Public IP for SSH (like Kamal)
     private_ip: 10.0.1.10    # Optional: Private IP for PostgreSQL replication (VPN/VPC)
