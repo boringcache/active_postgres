@@ -101,4 +101,36 @@ class PgBouncerTest < Minitest::Test
 
     assert_equal config.postgres_user, config.app_user
   end
+
+  def test_follow_primary_script_template_includes_repmgr_lookup
+    config = stub_config(component_config: { pgbouncer: {}, repmgr: {} })
+    secrets = ActivePostgres::Secrets.new(config)
+    component = ActivePostgres::Components::PgBouncer.new(config, Object.new, secrets)
+
+    content = component.instance_eval do
+      repmgr_conf = '/etc/repmgr.conf'
+      postgres_user = 'postgres'
+      _ = [repmgr_conf, postgres_user]
+      render_template('pgbouncer_follow_primary.sh.erb', binding)
+    end
+
+    assert_includes content, 'repmgr -f "$REPMGR_CONF" cluster show --csv'
+    assert_includes content, 'PGBOUNCER_INI="/etc/pgbouncer/pgbouncer.ini"'
+    assert_match(/sed -i -E "s\/\^\(\\\\\* = host=\)\[\^ \]\+\//, content)
+    assert_includes content, '${primary_host}'
+  end
+
+  def test_follow_primary_timer_template_includes_interval
+    config = stub_config(component_config: { pgbouncer: {}, repmgr: {} })
+    secrets = ActivePostgres::Secrets.new(config)
+    component = ActivePostgres::Components::PgBouncer.new(config, Object.new, secrets)
+
+    content = component.instance_eval do
+      interval = 5
+      _ = interval
+      render_template('pgbouncer-follow-primary.timer.erb', binding)
+    end
+
+    assert_includes content, 'OnUnitActiveSec=5s'
+  end
 end

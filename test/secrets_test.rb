@@ -77,4 +77,35 @@ class SecretsTest < Minitest::Test
   ensure
     ENV.delete('TEST_VAR')
   end
+
+  def test_resolve_does_not_cache_nil_values
+    ENV.delete('DYNAMIC_SECRET')
+    config = stub_config(secrets_config: { 'db_password' => '$DYNAMIC_SECRET' })
+    secrets = ActivePostgres::Secrets.new(config)
+
+    assert_nil secrets.resolve('db_password')
+
+    ENV['DYNAMIC_SECRET'] = 'now-present'
+    assert_equal 'now-present', secrets.resolve('db_password')
+  ensure
+    ENV.delete('DYNAMIC_SECRET')
+  end
+
+  def test_resolve_value_nested_hash_and_array
+    ENV['NESTED_SECRET'] = 'nested'
+    config = stub_config(secrets_config: {})
+    secrets = ActivePostgres::Secrets.new(config)
+
+    resolved = secrets.resolve_value({
+      'literal' => 'value',
+      'env' => '$NESTED_SECRET',
+      'array' => ['a', 'env:NESTED_SECRET']
+    })
+
+    assert_equal 'value', resolved['literal']
+    assert_equal 'nested', resolved['env']
+    assert_equal ['a', 'nested'], resolved['array']
+  ensure
+    ENV.delete('NESTED_SECRET')
+  end
 end

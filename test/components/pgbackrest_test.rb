@@ -84,6 +84,51 @@ class PgBackRestTest < Minitest::Test
     assert_equal 14, retention_archive
   end
 
+  def test_pgbackrest_template_uses_custom_s3_endpoint_and_uri_style
+    config = stub_config(component_config: { pgbackrest: {} })
+    secrets = ActivePostgres::Secrets.new(config)
+    component = ActivePostgres::Components::PgBackRest.new(config, Object.new, secrets)
+
+    content = component.instance_eval do
+      pgbackrest_config = {
+        repo_type: 's3',
+        s3_bucket: 'my-backups',
+        s3_region: 'auto',
+        s3_endpoint: 't3.storage.dev',
+        s3_uri_style: 'path'
+      }
+      secrets_obj = secrets
+      _ = [pgbackrest_config, secrets_obj]
+      render_template('pgbackrest.conf.erb', binding)
+    end
+
+    assert_includes content, 'repo1-s3-endpoint=t3.storage.dev'
+    assert_includes content, 'repo1-s3-uri-style=path'
+    refute_includes content, 's3.auto.amazonaws.com'
+  end
+
+  def test_setup_backup_schedule_uses_upload_file
+    schedule = '0 2 * * *'
+    config = stub_config(primary_host: 'primary.example.com', postgres_user: 'pguser')
+    secrets = ActivePostgres::Secrets.new(config)
+    ssh_executor = Minitest::Mock.new
+    component = ActivePostgres::Components::PgBackRest.new(config, ssh_executor, secrets)
+
+    ssh_executor.expect(:upload_file, nil) do |host, content, path, **kwargs|
+      assert_equal 'primary.example.com', host
+      assert_equal '/etc/cron.d/pgbackrest-backup', path
+      assert_equal '644', kwargs[:mode]
+      assert_equal 'root:root', kwargs[:owner]
+      assert_includes content, schedule
+      assert_includes content, 'pgbackrest --stanza=main --type=full backup'
+      true
+    end
+
+    component.send(:setup_backup_schedule, 'primary.example.com', schedule)
+
+    ssh_executor.verify
+  end
+
   def test_install_on_standby_does_not_create_stanza
     config = stub_config(
       primary_host: 'primary.example.com',
