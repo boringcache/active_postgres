@@ -138,6 +138,9 @@ shared: &shared
       repo_type: s3  # s3, gcs, azure, local
       s3_bucket: myapp-backups
       s3_region: us-east-1
+      # S3-compatible endpoints (Tigris/MinIO/Wasabi/DO Spaces)
+      # s3_endpoint: t3.storage.dev
+      # s3_uri_style: path # path or host (path recommended for S3-compatible)
       schedule: "0 2 * * *"
       retention_full: 7
       retention_archive: 14

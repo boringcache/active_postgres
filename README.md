@@ -130,6 +130,21 @@ secrets:
   monitoring_password: $POSTGRES_MONITORING_PASSWORD
 ```
 
+### pgBackRest S3-compatible endpoints
+
+For Tigris/MinIO/Wasabi/DO Spaces, set a custom endpoint and use path-style URLs:
+
+```yaml
+components:
+  pgbackrest:
+    enabled: true
+    repo_type: s3
+    s3_bucket: myapp-backups
+    s3_region: auto
+    s3_endpoint: t3.storage.dev
+    s3_uri_style: path
+```
+
 ### Stable app endpoint with PgBouncer
 
 If you run PgBouncer on each PostgreSQL node and want a fixed app URL, enable `follow_primary`.
