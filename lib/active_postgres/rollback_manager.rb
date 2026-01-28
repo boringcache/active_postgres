@@ -113,12 +113,10 @@ module ActivePostgres
 
     def register_database_removal(host, database_name)
       postgres_user = config.postgres_user
+      executor = ssh_executor
       register("Drop database #{database_name} on #{host}", host: host) do
         sql = "DROP DATABASE IF EXISTS #{database_name};"
-        upload! StringIO.new(sql), '/tmp/drop_database.sql'
-        execute :chmod, '644', '/tmp/drop_database.sql'
-        execute :sudo, '-u', postgres_user, 'psql', '-f', '/tmp/drop_database.sql'
-        execute :rm, '-f', '/tmp/drop_database.sql'
+        executor.run_sql_on_backend(self, sql, postgres_user: postgres_user, tuples_only: false, capture: false)
       rescue StandardError
         nil
       end
@@ -126,12 +124,10 @@ module ActivePostgres
 
     def register_postgres_user_removal(host, username)
       postgres_user = config.postgres_user
+      executor = ssh_executor
       register("Drop PostgreSQL user #{username} on #{host}", host: host) do
         sql = "DROP USER IF EXISTS #{username};"
-        upload! StringIO.new(sql), '/tmp/drop_user.sql'
-        execute :chmod, '644', '/tmp/drop_user.sql'
-        execute :sudo, '-u', postgres_user, 'psql', '-f', '/tmp/drop_user.sql'
-        execute :rm, '-f', '/tmp/drop_user.sql'
+        executor.run_sql_on_backend(self, sql, postgres_user: postgres_user, tuples_only: false, capture: false)
       rescue StandardError
         nil
       end

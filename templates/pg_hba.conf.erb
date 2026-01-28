@@ -39,9 +39,12 @@
   repmgr_network = pg_hba_rules.find { |r| r[:type] == 'host' && r[:address] && !r[:address].start_with?('127.0.0.1') }&.dig(:address) || '10.8.0.0/24'
   repmgr_user = config.repmgr_user
   repmgr_db = config.repmgr_database
+  replication_user = config.replication_user
 %>
 host    replication     <%= repmgr_user %>          <%= repmgr_network %>          scram-sha-256
+<% if replication_user && replication_user != repmgr_user %>
+host    replication     <%= replication_user %>          <%= repmgr_network %>          scram-sha-256
+<% end %>
 host    <%= repmgr_db %>          <%= repmgr_user %>          <%= repmgr_network %>          scram-sha-256
 <% end %>
-
 

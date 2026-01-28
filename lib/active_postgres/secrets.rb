@@ -15,13 +15,28 @@ module ActivePostgres
       return nil unless secret_value
 
       resolved = resolve_secret_value(secret_value)
-      @cache[secret_key] = resolved
+      @cache[secret_key] = resolved unless resolved.nil?
       resolved
     end
 
     def resolve_all
       config.secrets_config.keys.each_with_object({}) do |key, result|
         result[key] = resolve(key)
+      end
+    end
+
+    def resolve_value(value)
+      case value
+      when Hash
+        value.each_with_object({}) do |(k, v), result|
+          result[k] = resolve_value(v)
+        end
+      when Array
+        value.map { |v| resolve_value(v) }
+      when String
+        resolve_secret_value(value)
+      else
+        value
       end
     end
 
@@ -45,9 +60,10 @@ module ActivePostgres
 
     def resolve_secret_value(value)
       case value
-      when /^rails_credentials:(.+)$/
+      when /^(rails_credentials|credentials):(.+)$/
         # Rails credentials: rails_credentials:postgres.superuser_password
-        key_path = ::Regexp.last_match(1)
+        # Alias: credentials:postgres.superuser_password
+        key_path = ::Regexp.last_match(2).to_s.strip
         fetch_from_rails_credentials(key_path)
       when /^\$\((.+)\)$/
         # Command execution: $(op read "op://...")
@@ -65,10 +81,12 @@ module ActivePostgres
     end
 
     def fetch_from_rails_credentials(key_path)
-      return nil unless Credentials.available?
+      return nil unless defined?(::Rails) && ::Rails.respond_to?(:application) && ::Rails.application
 
       keys = key_path.split('.').map(&:to_sym)
-      Rails.application.credentials.dig(*keys)
+      ::Rails.application.credentials.dig(*keys)
+    rescue StandardError
+      nil
     end
 
     def execute_command(command)

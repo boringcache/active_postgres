@@ -112,6 +112,7 @@ module ActivePostgres
         puts "  superuser_password: \"#{generate_secure_password}\""
         puts "  replication_password: \"#{generate_secure_password}\""
         puts "  repmgr_password: \"#{generate_secure_password}\""
+        puts "  monitoring_password: \"#{generate_secure_password}\""
         puts
         puts '🔐 Secure passwords have been auto-generated above.'
         puts '📌 Update primary_host and replica_host with your actual IPs after provisioning.'

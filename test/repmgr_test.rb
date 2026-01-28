@@ -10,11 +10,15 @@ class RepmgrTest < Minitest::Test
 
   def test_pgpass_content_escapes_colons_and_backslashes
     password = 'pa:ss\word'
-    content = @component.send(:build_pgpass_content, 'standby.example.com', password, '10.0.0.10')
+    replication_password = 're:pl\word'
+    content = @component.send(:build_pgpass_content, 'standby.example.com', password,
+                              replication_password: replication_password, primary_ip: '10.0.0.10')
 
     assert_includes content, 'localhost:5432:repmgr:repmgr:pa\\:ss\\\\word'
     assert_includes content, '10.0.0.10:5432:*:repmgr:pa\\:ss\\\\word'
     assert_includes content, '10.0.0.11:5432:*:repmgr:pa\\:ss\\\\word'
+    assert_includes content, 'localhost:5432:replication:replication:re\\:pl\\\\word'
+    assert_includes content, '10.0.0.10:5432:*:replication:re\\:pl\\\\word'
   end
 
   def test_normalize_repmgr_password_strips_trailing_whitespace
@@ -33,5 +37,15 @@ class RepmgrTest < Minitest::Test
     conninfo = @component.send(:build_primary_conninfo, label)
 
     assert_equal 'host=10.0.0.10 user=repmgr dbname=repmgr application_name=standby-node', conninfo
+  end
+
+  def test_build_primary_conninfo_uses_replication_user_when_password_present
+    config = stub_config(secrets_config: { 'replication_password' => 'secret' }, replication_user: 'repl_user')
+    secrets = ActivePostgres::Secrets.new(config)
+    component = ActivePostgres::Components::Repmgr.new(config, Object.new, secrets)
+
+    conninfo = component.send(:build_primary_conninfo, 'standby-node')
+
+    assert_equal 'host=10.0.0.10 user=repl_user dbname=replication application_name=standby-node', conninfo
   end
 end

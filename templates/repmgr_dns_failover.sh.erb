@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPMGR_CONF="/etc/repmgr.conf"
+DNS_USER="<%= dns_user %>"
+DNS_SERVERS=(<%= dns_servers.map(&:to_s).join(' ') %>)
+DNS_SSH_KEY="<%= dns_ssh_key_path %>"
+DNSMASQ_FILE="/etc/dnsmasq.d/active_postgres.conf"
+PRIMARY_RECORD="<%= primary_record %>"
+REPLICA_RECORD="<%= replica_record %>"
+SSH_STRICT_HOST_KEY="<%= ssh_strict_host_key %>"
+SSH_KNOWN_HOSTS="/var/lib/postgresql/.ssh/known_hosts"
+LOG_TAG="active_postgres_dns"
+
+cluster_csv=$(repmgr -f "$REPMGR_CONF" cluster show --csv 2>/dev/null || true)
+if [[ -z "$cluster_csv" ]]; then
+  exit 0
+fi
+
+primary_host=$(printf "%s\n" "$cluster_csv" | awk -F',' 'NR>1 && tolower($3) ~ /primary/ {print $NF; exit}' | sed -n 's/.*host=\\([^ ]*\\).*/\\1/p')
+standby_hosts=$(printf "%s\n" "$cluster_csv" | awk -F',' 'NR>1 && tolower($3) ~ /standby/ {print $NF}' | sed -n 's/.*host=\\([^ ]*\\).*/\\1/p' | sort -u)
+
+if [[ -z "$primary_host" ]]; then
+  exit 0
+fi
+
+content=$'# Managed by active_postgres\n'
+printf -v content '%saddress=/%s/%s\n' "$content" "$PRIMARY_RECORD" "$primary_host"
+
+if [[ -n "$standby_hosts" ]]; then
+  for host in $standby_hosts; do
+    printf -v content '%saddress=/%s/%s\n' "$content" "$REPLICA_RECORD" "$host"
+  done
+fi
+
+ssh_opts=(-i "$DNS_SSH_KEY" -o BatchMode=yes -o StrictHostKeyChecking="$SSH_STRICT_HOST_KEY" -o UserKnownHostsFile="$SSH_KNOWN_HOSTS")
+
+for server in "${DNS_SERVERS[@]}"; do
+  if [[ -z "$server" ]]; then
+    continue
+  fi
+
+  if ! /usr/bin/ssh "${ssh_opts[@]}" "${DNS_USER}@${server}" \
+    "sudo bash -c 'cat > ${DNSMASQ_FILE} << \"EOF\"\\n${content}EOF\\n' && (sudo systemctl reload dnsmasq || sudo systemctl restart dnsmasq)"; then
+    /usr/bin/logger -t "$LOG_TAG" "Failed updating dnsmasq on ${server}"
+  fi
+done
+
+/usr/bin/logger -t "$LOG_TAG" "Updated DNS records for ${PRIMARY_RECORD} and ${REPLICA_RECORD} (primary=${primary_host})"

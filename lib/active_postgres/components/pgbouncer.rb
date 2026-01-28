@@ -14,6 +14,11 @@ module ActivePostgres
 
         config.all_hosts.each do |host|
           ssh_executor.execute_on_host(host) do
+            execute :sudo, 'systemctl', 'disable', '--now', 'pgbouncer-follow-primary.timer', '||', 'true'
+            execute :sudo, 'rm', '-f', '/usr/local/bin/pgbouncer-follow-primary',
+                    '/etc/systemd/system/pgbouncer-follow-primary.service',
+                    '/etc/systemd/system/pgbouncer-follow-primary.timer'
+            execute :sudo, 'systemctl', 'daemon-reload'
             execute :sudo, 'systemctl', 'stop', 'pgbouncer'
             execute :sudo, 'apt-get', 'remove', '-y', 'pgbouncer'
           end
@@ -53,11 +58,16 @@ module ActivePostgres
         puts "  Installing PgBouncer on #{host}..."
 
         user_config = config.component_config(:pgbouncer)
+        follow_primary = user_config[:follow_primary] == true
+        if follow_primary && !config.component_enabled?(:repmgr)
+          raise Error, 'PgBouncer follow_primary requires repmgr to be enabled'
+        end
 
         max_connections = get_postgres_max_connections(host)
         optimal_pool = ConnectionPooler.calculate_optimal_pool_sizes(max_connections)
 
         pgbouncer_config = optimal_pool.merge(user_config)
+        pgbouncer_config[:database_host] = config.primary_replication_host if follow_primary
         ssl_enabled = config.component_enabled?(:ssl)
         has_ca_cert = ssl_enabled && secrets.resolve('ssl_chain')
         secrets_obj = secrets
@@ -81,6 +91,8 @@ module ActivePostgres
           execute :sudo, 'systemctl', 'enable', 'pgbouncer'
           execute :sudo, 'systemctl', 'restart', 'pgbouncer'
         end
+
+        install_follow_primary(host, pgbouncer_config) if follow_primary
       end
 
       def setup_ssl_certs(host)
@@ -135,10 +147,7 @@ module ActivePostgres
       def fetch_user_hash(backend, user, postgres_user)
         sql = build_user_hash_sql(user)
 
-        backend.upload! StringIO.new(sql), '/tmp/get_user_hash.sql'
-        backend.execute :chmod, '644', '/tmp/get_user_hash.sql'
-        user_hash = backend.capture(:sudo, '-u', postgres_user, 'psql', '-t', '-f', '/tmp/get_user_hash.sql').strip
-        backend.execute :rm, '-f', '/tmp/get_user_hash.sql'
+        user_hash = ssh_executor.run_sql_on_backend(backend, sql, postgres_user: postgres_user).to_s.strip
 
         if user_hash && !user_hash.empty?
           puts "  ✓ Added #{user} to PgBouncer userlist"
@@ -170,6 +179,31 @@ module ActivePostgres
           puts "  ✓ Created userlist with #{userlist_entries.size} user(s)"
         else
           warn '  Warning: No users added to userlist - connections may fail'
+        end
+      end
+
+      def install_follow_primary(host, pgbouncer_config)
+        interval = pgbouncer_config[:follow_primary_interval] || 5
+        interval = interval.to_i
+        interval = 5 if interval <= 0
+
+        repmgr_conf = '/etc/repmgr.conf'
+        postgres_user = config.postgres_user
+        _ = interval
+        _ = repmgr_conf
+        _ = postgres_user
+
+        upload_template(host, 'pgbouncer_follow_primary.sh.erb', '/usr/local/bin/pgbouncer-follow-primary', binding,
+                        mode: '755', owner: 'root:root')
+        upload_template(host, 'pgbouncer-follow-primary.service.erb',
+                        '/etc/systemd/system/pgbouncer-follow-primary.service', binding, mode: '644', owner: 'root:root')
+        upload_template(host, 'pgbouncer-follow-primary.timer.erb',
+                        '/etc/systemd/system/pgbouncer-follow-primary.timer', binding, mode: '644', owner: 'root:root')
+
+        ssh_executor.execute_on_host(host) do
+          execute :sudo, 'systemctl', 'daemon-reload'
+          execute :sudo, 'systemctl', 'enable', '--now', 'pgbouncer-follow-primary.timer'
+          execute :sudo, 'systemctl', 'start', 'pgbouncer-follow-primary.service'
         end
       end
     end

@@ -1,0 +1,8 @@
+[Unit]
+Description=Update PgBouncer target to current PostgreSQL primary
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/pgbouncer-follow-primary

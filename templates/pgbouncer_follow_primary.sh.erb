@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPMGR_CONF="<%= repmgr_conf %>"
+PGBOUNCER_INI="/etc/pgbouncer/pgbouncer.ini"
+PGBOUNCER_SERVICE="pgbouncer"
+LOG_TAG="pgbouncer-follow-primary"
+
+cluster_csv=$(/usr/bin/sudo -u <%= postgres_user %> env HOME=/var/lib/postgresql \
+  repmgr -f "$REPMGR_CONF" cluster show --csv 2>/dev/null || true)
+if [[ -z "$cluster_csv" ]]; then
+  exit 0
+fi
+
+primary_conninfo=$(printf "%s\n" "$cluster_csv" | awk -F',' 'NR>1 && tolower($3) ~ /primary/ {print $NF; exit}')
+if [[ -z "$primary_conninfo" ]]; then
+  exit 0
+fi
+
+primary_host=$(printf "%s" "$primary_conninfo" | sed -n 's/.*host=\\([^ ]*\\).*/\\1/p')
+if [[ -z "$primary_host" ]]; then
+  exit 0
+fi
+
+current_host=$(awk -F'host=' '/^\\* = host=/{print $2}' "$PGBOUNCER_INI" | awk '{print $1}')
+if [[ -z "$current_host" ]]; then
+  exit 0
+fi
+
+if [[ "$current_host" != "$primary_host" ]]; then
+  /usr/bin/sed -i -E "s/^(\\* = host=)[^ ]+/\\1${primary_host}/" "$PGBOUNCER_INI"
+  /usr/bin/systemctl reload "$PGBOUNCER_SERVICE"
+  /usr/bin/logger -t "$LOG_TAG" "Updated PgBouncer primary target to ${primary_host}"
+fi

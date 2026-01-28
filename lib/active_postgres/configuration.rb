@@ -2,7 +2,8 @@ require 'yaml'
 
 module ActivePostgres
   class Configuration
-    attr_reader :environment, :version, :user, :ssh_key, :primary, :standbys, :components, :secrets_config, :database_config
+    attr_reader :environment, :version, :user, :ssh_key, :ssh_host_key_verification, :primary, :standbys, :components, :secrets_config,
+                :database_config
 
     def initialize(config_hash, environment = 'development')
       @environment = environment
@@ -13,6 +14,9 @@ module ActivePostgres
       @version = env_config['version'] || 18
       @user = env_config['user'] || 'ubuntu'
       @ssh_key = File.expand_path(env_config['ssh_key'] || '~/.ssh/id_rsa')
+      @ssh_host_key_verification = normalize_ssh_host_key_verification(
+        env_config['ssh_host_key_verification'] || env_config['ssh_verify_host_key']
+      )
 
       @primary = env_config['primary'] || {}
       @standbys = env_config['standby'] || []
@@ -91,6 +95,29 @@ module ActivePostgres
 
       # Validate required secrets if components are enabled
       raise Error, 'Missing replication_password secret' if component_enabled?(:repmgr) && !secrets_config['replication_password']
+      raise Error, 'Missing monitoring_password secret' if component_enabled?(:monitoring) && !secrets_config['monitoring_password']
+
+        if component_enabled?(:repmgr)
+          dns_failover = component_config(:repmgr)[:dns_failover]
+          if dns_failover && dns_failover[:enabled]
+            domain = dns_failover[:domain].to_s.strip
+            servers = Array(dns_failover[:dns_servers])
+            provider = (dns_failover[:provider] || 'dnsmasq').to_s.strip
+
+            raise Error, 'dns_failover.domain is required when enabled' if domain.empty?
+            raise Error, 'dns_failover.dns_servers is required when enabled' if servers.empty?
+            raise Error, "Unsupported dns_failover provider '#{provider}'" unless provider == 'dnsmasq'
+
+            servers.each do |server|
+              next unless server.is_a?(Hash)
+
+              ssh_host = server['ssh_host'] || server[:ssh_host] || server['host'] || server[:host]
+              private_ip = server['private_ip'] || server[:private_ip] || server['ip'] || server[:ip]
+              raise Error, 'dns_failover.dns_servers entries must include host/ssh_host or private_ip' if
+                (ssh_host.nil? || ssh_host.to_s.strip.empty?) && (private_ip.nil? || private_ip.to_s.strip.empty?)
+            end
+          end
+        end
 
       true
     end
@@ -106,6 +133,10 @@ module ActivePostgres
 
     def repmgr_database
       component_config(:repmgr)[:database] || 'repmgr'
+    end
+
+    def replication_user
+      component_config(:repmgr)[:replication_user] || 'replication'
     end
 
     def pgbouncer_user
@@ -194,6 +225,23 @@ module ActivePostgres
       else
         value
       end
+    end
+
+    def normalize_ssh_host_key_verification(value)
+      return :always if value.nil?
+
+      normalized = case value
+                   when Symbol
+                     value
+                   else
+                     value.to_s.strip.downcase.tr('-', '_').to_sym
+                   end
+
+      return :always if normalized == :always
+      return :accept_new if %i[accept_new acceptnew new].include?(normalized)
+
+      raise Error,
+            "Invalid ssh_host_key_verification '#{value}'. Use 'always' or 'accept_new'."
     end
   end
 end

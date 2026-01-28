@@ -1,0 +1,11 @@
+[Unit]
+Description=Run pgbouncer-follow-primary periodically
+
+[Timer]
+OnBootSec=10s
+OnUnitActiveSec=<%= interval %>s
+AccuracySec=1s
+Unit=pgbouncer-follow-primary.service
+
+[Install]
+WantedBy=timers.target

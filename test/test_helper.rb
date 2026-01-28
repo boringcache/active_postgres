@@ -18,8 +18,9 @@ require 'minitest/autorun'
 
 module TestHelpers
   class ConfigStub
-    attr_accessor :primary_host, :standby_hosts, :version, :primary, :standbys, :environment, :secrets_config, :ssh_key, :user, :postgres_user,
-                  :pgbouncer_user, :app_user, :app_database, :repmgr_user, :repmgr_database
+    attr_accessor :primary_host, :standby_hosts, :version, :primary, :standbys, :environment, :secrets_config, :ssh_key,
+                  :ssh_host_key_verification, :user, :postgres_user, :pgbouncer_user, :app_user, :app_database,
+                  :repmgr_user, :repmgr_database, :replication_user
 
     def initialize(attrs = {})
       @primary_host = attrs[:primary_host]
@@ -30,6 +31,7 @@ module TestHelpers
       @environment = attrs[:environment] || 'test'
       @secrets_config = attrs[:secrets_config] || {}
       @ssh_key = attrs[:ssh_key] || '~/.ssh/id_rsa'
+      @ssh_host_key_verification = attrs[:ssh_host_key_verification] || :always
       @user = attrs[:user] || 'ubuntu'
       @postgres_user = attrs[:postgres_user] || 'postgres'
       @pgbouncer_user = attrs[:pgbouncer_user] || 'pgbouncer'
@@ -37,6 +39,7 @@ module TestHelpers
       @app_database = attrs[:app_database] || 'app_production'
       @repmgr_user = attrs[:repmgr_user] || 'repmgr'
       @repmgr_database = attrs[:repmgr_database] || 'repmgr'
+      @replication_user = attrs[:replication_user] || 'replication'
       @component_enabled_override = attrs.fetch(:component_enabled?, false)
       @component_config_override = attrs.fetch(:component_config, {})
     end

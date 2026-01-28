@@ -321,10 +321,7 @@ module ActivePostgres
           WHERE passwd IS NOT NULL
         SQL
 
-        upload! StringIO.new(sql), '/tmp/get_all_users.sql'
-        execute :chmod, '644', '/tmp/get_all_users.sql'
-        userlist = capture(:sudo, '-u', postgres_user, 'psql', '-t', '-f', '/tmp/get_all_users.sql').strip
-        execute :rm, '-f', '/tmp/get_all_users.sql'
+        userlist = @ssh_executor.run_sql_on_backend(self, sql, postgres_user: postgres_user).to_s.strip
 
         unless userlist.include?(pgbouncer_user)
           pgbouncer_pass = SecureRandom.hex(16)
@@ -335,10 +332,7 @@ module ActivePostgres
             "GRANT CONNECT ON DATABASE postgres TO #{pgbouncer_user};"
           ].join("\n")
 
-          upload! StringIO.new(sql), '/tmp/create_pgbouncer_user.sql'
-          execute :chmod, '644', '/tmp/create_pgbouncer_user.sql'
-          execute :sudo, '-u', postgres_user, 'psql', '-f', '/tmp/create_pgbouncer_user.sql'
-          execute :rm, '-f', '/tmp/create_pgbouncer_user.sql'
+          @ssh_executor.run_sql_on_backend(self, sql, postgres_user: postgres_user, tuples_only: false, capture: false)
 
           sql = <<~SQL.strip
             SELECT passwd
@@ -346,10 +340,7 @@ module ActivePostgres
             WHERE usename = '#{pgbouncer_user}'
           SQL
 
-          upload! StringIO.new(sql), '/tmp/get_pgbouncer_pass.sql'
-          execute :chmod, '644', '/tmp/get_pgbouncer_pass.sql'
-          encrypted = capture(:sudo, '-u', postgres_user, 'psql', '-t', '-f', '/tmp/get_pgbouncer_pass.sql').strip
-          execute :rm, '-f', '/tmp/get_pgbouncer_pass.sql'
+          encrypted = @ssh_executor.run_sql_on_backend(self, sql, postgres_user: postgres_user).to_s.strip
 
           userlist += "\n\"#{pgbouncer_user}\" \"#{encrypted}\""
         end

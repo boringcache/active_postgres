@@ -372,6 +372,15 @@ namespace :postgres do
       installer.setup_component('monitoring')
     end
 
+    desc 'Setup only pgBackRest backups'
+    task pgbackrest: :environment do
+      require 'active_postgres'
+
+      config = ActivePostgres::Configuration.load
+      installer = ActivePostgres::Installer.new(config)
+      installer.setup_component('pgbackrest')
+    end
+
     desc 'Setup only repmgr'
     task repmgr: :environment do
       require 'active_postgres'
@@ -412,10 +421,7 @@ namespace :postgres do
             WHERE rolname = '#{user}'
           SQL
 
-          upload! StringIO.new(sql), '/tmp/get_user_hash.sql'
-          execute :chmod, '644', '/tmp/get_user_hash.sql'
-          user_hash = capture(:sudo, '-u', postgres_user, 'psql', '-t', '-f', '/tmp/get_user_hash.sql').strip
-          execute :rm, '-f', '/tmp/get_user_hash.sql'
+          user_hash = ssh_executor.run_sql_on_backend(self, sql, postgres_user: postgres_user).to_s.strip
 
           if user_hash && !user_hash.empty?
             userlist_entries << user_hash

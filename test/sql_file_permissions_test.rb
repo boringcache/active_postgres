@@ -6,6 +6,7 @@ class SqlFilePermissionsTest < Minitest::Test
       'lib/active_postgres/components/pgbouncer.rb',
       'lib/active_postgres/components/core.rb',
       'lib/active_postgres/components/repmgr.rb',
+      'lib/active_postgres/components/monitoring.rb',
       'lib/active_postgres/connection_pooler.rb',
       'lib/active_postgres/rollback_manager.rb',
       'lib/tasks/postgres.rake',
@@ -37,12 +38,12 @@ class SqlFilePermissionsTest < Minitest::Test
       # Check if chmod follows within the next 3 lines
       has_chmod = (1..3).any? do |offset|
         next_line = lines[index + offset]
-        next_line&.include?('chmod') && next_line.include?(sql_file)
+        next_line&.include?('chmod') && next_line.include?(sql_file) && next_line.include?("'600'")
       end
 
       assert has_chmod,
-             "#{file_path}:#{index + 1} - SQL upload '#{sql_file}' missing chmod 644 command.\n" \
-             "Add: execute :chmod, '644', '#{sql_file}' after the upload"
+             "#{file_path}:#{index + 1} - SQL upload '#{sql_file}' missing chmod 600 command.\n" \
+             "Add: execute :chmod, '600', '#{sql_file}' after the upload"
     end
   end
 

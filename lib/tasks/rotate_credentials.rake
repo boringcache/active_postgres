@@ -26,10 +26,7 @@ namespace :postgres do
         escaped_password = new_password.gsub("'", "''")
 
         sql = "ALTER USER #{app_user} WITH PASSWORD '#{escaped_password}';"
-        upload! StringIO.new(sql), '/tmp/rotate_password.sql'
-        execute :chmod, '644', '/tmp/rotate_password.sql'
-        execute :sudo, '-u', 'postgres', 'psql', '-f', '/tmp/rotate_password.sql'
-        execute :rm, '-f', '/tmp/rotate_password.sql'
+        ssh_executor.run_sql_on_backend(self, sql, postgres_user: 'postgres', tuples_only: false, capture: false)
 
         puts "✓ Updated PostgreSQL password for #{app_user}"
       end
@@ -48,10 +45,7 @@ namespace :postgres do
               WHERE rolname = '#{user}'
             SQL
 
-            upload! StringIO.new(sql), '/tmp/get_user_hash.sql'
-            execute :chmod, '644', '/tmp/get_user_hash.sql'
-            user_hash = capture(:sudo, '-u', postgres_user, 'psql', '-t', '-f', '/tmp/get_user_hash.sql').strip
-            execute :rm, '-f', '/tmp/get_user_hash.sql'
+            user_hash = ssh_executor.run_sql_on_backend(self, sql, postgres_user: postgres_user).to_s.strip
 
             userlist_entries << user_hash if user_hash && !user_hash.empty?
           end
@@ -128,10 +122,7 @@ namespace :postgres do
           escaped_password = new_password.gsub("'", "''")
 
           sql = "ALTER USER #{username} WITH PASSWORD '#{escaped_password}';"
-          upload! StringIO.new(sql), '/tmp/rotate_password.sql'
-          execute :chmod, '644', '/tmp/rotate_password.sql'
-          execute :sudo, '-u', 'postgres', 'psql', '-f', '/tmp/rotate_password.sql'
-          execute :rm, '-f', '/tmp/rotate_password.sql'
+          ssh_executor.run_sql_on_backend(self, sql, postgres_user: 'postgres', tuples_only: false, capture: false)
         end
 
         puts "✓ Updated #{username}"
@@ -152,10 +143,7 @@ namespace :postgres do
               WHERE rolname = '#{user}'
             SQL
 
-            upload! StringIO.new(sql), '/tmp/get_user_hash.sql'
-            execute :chmod, '644', '/tmp/get_user_hash.sql'
-            user_hash = capture(:sudo, '-u', postgres_user, 'psql', '-t', '-f', '/tmp/get_user_hash.sql').strip
-            execute :rm, '-f', '/tmp/get_user_hash.sql'
+            user_hash = ssh_executor.run_sql_on_backend(self, sql, postgres_user: postgres_user).to_s.strip
 
             userlist_entries << user_hash if user_hash && !user_hash.empty?
           end

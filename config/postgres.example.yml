@@ -13,6 +13,8 @@ shared: &shared
   version: 18
   user: ubuntu
   ssh_key: ~/.ssh/id_rsa
+  # SSH host key verification: always (strict) or accept_new (first connection)
+  ssh_host_key_verification: always
   
   # Components (enable as needed)
   components:
@@ -102,6 +104,20 @@ shared: &shared
       priority: 100
       reconnect_attempts: 6
       reconnect_interval: 10
+      # Optional: dedicated streaming replication user
+      replication_user: replication
+      # Optional: update DNS on failover (dnsmasq)
+      # dns_failover:
+      #   enabled: true
+      #   provider: dnsmasq
+      #   domain: mesh.internal
+      #   dns_servers:
+      #     - host: 18.170.173.14
+      #       private_ip: 10.8.0.10
+      #     - host: 98.85.183.175
+      #       private_ip: 10.8.0.110
+      #   primary_record: db-primary.mesh.internal
+      #   replica_record: db-replica.mesh.internal
 
     pgbouncer:
       enabled: true
@@ -113,6 +129,9 @@ shared: &shared
       # default_pool_size: 25       # Auto: calculated based on max_connections
       # reserve_pool_size: 5
       # reserve_pool_timeout: 5
+      # Keep PgBouncer pointed at the current primary (requires repmgr)
+      # follow_primary: true
+      # follow_primary_interval: 5
     
     pgbackrest:
       enabled: true
@@ -126,6 +145,7 @@ shared: &shared
     monitoring:
       enabled: true
       exporter_port: 9187
+      user: postgres_exporter
     
     ssl:
       enabled: true
@@ -194,11 +214,13 @@ staging:
     superuser_password: $POSTGRES_SUPERUSER_PASSWORD
     replication_password: $POSTGRES_REPLICATION_PASSWORD
     repmgr_password: $POSTGRES_REPMGR_PASSWORD
+    monitoring_password: $POSTGRES_MONITORING_PASSWORD
     
     # Method 2: Cached local files (after running: active_postgres cache-secrets)
     # superuser_password: $(cat .secrets/superuser_password)
     # replication_password: $(cat .secrets/replication_password)
     # repmgr_password: $(cat .secrets/repmgr_password)
+    # monitoring_password: $(cat .secrets/monitoring_password)
 
 # Production (primary with multiple standbys/replicas)
 production:
@@ -240,6 +262,7 @@ production:
     # Uses rails_credentials: prefix to fetch from Rails.application.credentials
     superuser_password: rails_credentials:postgres.superuser_password
     replication_password: rails_credentials:postgres.replication_password
+    monitoring_password: rails_credentials:postgres.monitoring_password
     repmgr_password: rails_credentials:postgres.repmgr_password
     pgbouncer_password: rails_credentials:postgres.pgbouncer_password
     app_password: rails_credentials:postgres.password
@@ -248,6 +271,7 @@ production:
     # superuser_password: $POSTGRES_SUPERUSER_PASSWORD
     # replication_password: $POSTGRES_REPLICATION_PASSWORD
     # repmgr_password: $POSTGRES_REPMGR_PASSWORD
+    # monitoring_password: $POSTGRES_MONITORING_PASSWORD
     # pgbouncer_password: $POSTGRES_PGBOUNCER_PASSWORD
     # app_password: $POSTGRES_APP_PASSWORD
 
@@ -259,5 +283,3 @@ production:
     # ssl_cert: rails_credentials:postgres.ssl.cert
     # ssl_key: rails_credentials:postgres.ssl.key
     # ssl_ca: rails_credentials:postgres.ssl.ca
-
-

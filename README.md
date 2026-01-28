@@ -7,7 +7,7 @@ Production-grade PostgreSQL HA for Rails.
 - **High Availability**: Primary/standby replication with automatic failover (repmgr)
 - **Connection Pooling**: PgBouncer integration
 - **Rails Integration**: Automatic database.yml config, migration guard, read replica routing
-- **Modular Components**: Core, Performance Tuning, repmgr, PgBouncer, pgBackRest, Monitoring, SSL, Extensions
+- **Modular Components**: Core, Performance Tuning (opt-in), repmgr, PgBouncer, pgBackRest, Monitoring, SSL, Extensions
 
 ## Quick Start
 
@@ -48,6 +48,7 @@ production:
     superuser_password: $POSTGRES_SUPERUSER_PASSWORD
     replication_password: $POSTGRES_REPLICATION_PASSWORD
     repmgr_password: $POSTGRES_REPMGR_PASSWORD
+    monitoring_password: $POSTGRES_MONITORING_PASSWORD
     app_password: $POSTGRES_APP_PASSWORD
 ```
 
@@ -110,13 +111,68 @@ active_postgres cache-secrets
 | Component | Description | Config |
 |-----------|-------------|--------|
 | **Core** | PostgreSQL installation | Always enabled |
-| **Performance Tuning** | Auto-optimization | Enabled by default |
+| **Performance Tuning** | Auto-optimization | Disabled by default |
 | **repmgr** | HA & automatic failover | `repmgr: {enabled: true}` |
 | **PgBouncer** | Connection pooling | `pgbouncer: {enabled: true}` |
 | **pgBackRest** | Backup & restore | `pgbackrest: {enabled: true}` |
-| **Monitoring** | postgres_exporter | `monitoring: {enabled: true}` |
+| **Monitoring** | postgres_exporter (configures a dedicated pg_monitor user) | `monitoring: {enabled: true}` |
 | **SSL** | Encrypted connections | `ssl: {enabled: true}` |
 | **Extensions** | pgvector, PostGIS, etc. | `extensions: {enabled: true, list: [pgvector]}` |
+
+### Monitoring credentials
+
+`postgres_exporter` uses a dedicated `pg_monitor` user. Provide a password in secrets and optionally set the username:
+
+```yaml
+components:
+  monitoring: {enabled: true, user: postgres_exporter}
+secrets:
+  monitoring_password: $POSTGRES_MONITORING_PASSWORD
+```
+
+### Stable app endpoint with PgBouncer
+
+If you run PgBouncer on each PostgreSQL node and want a fixed app URL, enable `follow_primary`.
+Each PgBouncer instance periodically repoints to the current primary using repmgr metadata.
+Put a TCP load balancer or DNS record in front of the PgBouncer nodes.
+
+```yaml
+components:
+  pgbouncer:
+    enabled: true
+    follow_primary: true
+    follow_primary_interval: 5
+```
+
+### Automatic DNS updates on failover (dnsmasq)
+
+If you use Messhy’s mesh DNS (dnsmasq), repmgr can update writer/reader DNS records on failover.
+Enable `dns_failover` under `repmgr` and provide DNS server IPs or hostnames.
+If you run setup from outside the mesh, use objects with both the public SSH host
+and the private WireGuard IP so setup can SSH in and failover updates stay on the mesh.
+If you run setup from inside the mesh, you can use a simple list of private IPs.
+
+```yaml
+components:
+  repmgr:
+    enabled: true
+    dns_failover:
+      enabled: true
+      provider: dnsmasq
+      domain: mesh.internal
+      dns_servers:
+        - host: 18.170.173.14
+          private_ip: 10.8.0.10
+        - host: 98.85.183.175
+          private_ip: 10.8.0.110
+      primary_record: db-primary.mesh.internal
+      replica_record: db-replica.mesh.internal
+```
+
+This installs an event hook so repmgr updates `/etc/dnsmasq.d/active_postgres.conf`
+on the DNS servers whenever the primary changes.
+DNS servers must be reachable over the private network and allow SSH from the
+database nodes (active_postgres installs SSH keys on first setup).
 
 ## Secrets Management
 
@@ -127,7 +183,8 @@ secrets:
 
   # Command execution
   password: $(op read "op://vault/item/field")
-  password: $(rails runner "puts Rails.application.credentials.dig(:postgres, :password)")
+  password: rails_credentials:postgres.password
+  password: credentials:postgres.password
 
   # AWS Secrets Manager
   password: $(aws secretsmanager get-secret-value --secret-id myapp/postgres --query SecretString)
@@ -150,8 +207,18 @@ User.all                     # → Replica
 - Ruby 3.0+
 - PostgreSQL 12+
 - Ubuntu 20.04+ / Debian 11+ with systemd
-- SSH key-based authentication
+- SSH key-based authentication (hosts must be in `~/.ssh/known_hosts`)
 - Rails 6.0+ (optional)
+
+### SSH host key verification
+
+By default, host keys are verified strictly (`always`). For first-time provisioning you can set:
+
+```yaml
+ssh_host_key_verification: accept_new
+```
+
+This trusts a host key the first time and then pins it; prefer `always` once hosts are known.
 
 ## License
 

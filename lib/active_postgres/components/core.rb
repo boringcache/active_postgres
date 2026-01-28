@@ -189,14 +189,9 @@ module ActivePostgres
         app_password = resolve_app_password
         sql = build_app_user_sql(app_user, app_database, app_password)
 
-        ssh_executor.execute_on_host(host) do
-          upload! StringIO.new(sql), '/tmp/create_app_user.sql'
-          execute :chmod, '644', '/tmp/create_app_user.sql'
-          execute :sudo, '-u', 'postgres', 'psql', '-f', '/tmp/create_app_user.sql'
-          execute :rm, '-f', '/tmp/create_app_user.sql'
+        ssh_executor.run_sql(host, sql, postgres_user: 'postgres', tuples_only: false, capture: false)
 
-          puts "  ✓ Created app user '#{app_user}' and database '#{app_database}'"
-        end
+        puts "  ✓ Created app user '#{app_user}' and database '#{app_database}'"
       rescue StandardError => e
         warn "  Warning: Could not create app user: #{e.message}"
         warn '  You may need to create the user manually'

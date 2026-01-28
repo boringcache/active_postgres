@@ -5,20 +5,18 @@ class RepmgrSqlTest < Minitest::Test
     repmgr_user = 'repmgr'
     repmgr_db = 'repmgr'
     password = 'test_password'
-    escaped_password = password.gsub("'", "''")
+    config = stub_config
+    secrets = ActivePostgres::Secrets.new(config)
+    component = ActivePostgres::Components::Repmgr.new(config, Object.new, secrets)
 
-    sql = [
-      "DROP DATABASE IF EXISTS #{repmgr_db}",
-      "DROP USER IF EXISTS #{repmgr_user}",
-      "CREATE USER #{repmgr_user} WITH SUPERUSER PASSWORD '#{escaped_password}'",
-      "CREATE DATABASE #{repmgr_db} OWNER #{repmgr_user}",
-      ''
-    ].join('; ')
+    sql = component.send(:build_repmgr_setup_sql, repmgr_user, repmgr_db, password)
 
-    assert_includes sql, "DROP DATABASE IF EXISTS #{repmgr_db}"
-    assert_includes sql, "DROP USER IF EXISTS #{repmgr_user}"
+    assert_includes sql, 'DO $$'
     assert_includes sql, "CREATE USER #{repmgr_user} WITH SUPERUSER"
+    assert_includes sql, "ALTER USER #{repmgr_user} WITH SUPERUSER"
     assert_includes sql, "CREATE DATABASE #{repmgr_db} OWNER #{repmgr_user}"
+    refute_includes sql, 'DROP DATABASE'
+    refute_includes sql, 'DROP USER'
   end
 
   def test_repmgr_password_escaping
@@ -64,11 +62,13 @@ class RepmgrSqlTest < Minitest::Test
     repmgr_user = 'repmgr'
     repmgr_db = 'repmgr'
 
-    sql = [
-      "DROP DATABASE IF EXISTS #{repmgr_db}",
-      "DROP USER IF EXISTS #{repmgr_user}"
-    ].join('; ')
+    config = stub_config
+    secrets = ActivePostgres::Secrets.new(config)
+    component = ActivePostgres::Components::Repmgr.new(config, Object.new, secrets)
 
-    assert_includes sql, 'IF EXISTS', 'Should use IF EXISTS for idempotent operations'
+    sql = component.send(:build_repmgr_setup_sql, repmgr_user, repmgr_db, 'test')
+
+    assert_includes sql, 'IF NOT EXISTS', 'Should use IF NOT EXISTS for idempotent operations'
+    refute_includes sql, 'DROP', 'Should avoid destructive drops in idempotent setup'
   end
 end

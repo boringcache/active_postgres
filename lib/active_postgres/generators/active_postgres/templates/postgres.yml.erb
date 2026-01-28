@@ -11,6 +11,8 @@ shared: &shared
   version: 18
   user: ubuntu
   ssh_key: ~/.ssh/id_rsa
+  # SSH host key verification: always (strict) or accept_new (first connection)
+  ssh_host_key_verification: always
 
   components:
     core:
@@ -31,17 +33,32 @@ shared: &shared
       # Optional: Override default repmgr user/database
       # user: repmgr
       # database: repmgr
+      # replication_user: replication
+      # dns_failover:
+      #   enabled: true
+      #   provider: dnsmasq
+      #   domain: mesh.internal
+      #   dns_servers:
+      #     - host: 18.170.173.14
+      #       private_ip: 10.8.0.10
+      #     - host: 98.85.183.175
+      #       private_ip: 10.8.0.110
+      #   primary_record: db-primary.mesh.internal
+      #   replica_record: db-replica.mesh.internal
 
     pgbouncer:
       enabled: false
       # Optional: Override default pgbouncer user
       # user: pgbouncer
+      # follow_primary: true
+      # follow_primary_interval: 5
     
     pgbackrest:
       enabled: false
     
     monitoring:
       enabled: false
+      # user: postgres_exporter
     
     ssl:
       enabled: false
@@ -80,6 +97,6 @@ production:
     superuser_password: rails_credentials:postgres.superuser_password
     replication_password: rails_credentials:postgres.replication_password
     repmgr_password: rails_credentials:postgres.repmgr_password
+    monitoring_password: rails_credentials:postgres.monitoring_password
     pgbouncer_password: rails_credentials:postgres.password
     app_password: rails_credentials:postgres.password
-

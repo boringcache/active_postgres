@@ -11,6 +11,8 @@ module ActivePostgres
           setup_standby(host)
         end
 
+        setup_dns_failover if dns_failover_enabled?
+
         # Verify the entire cluster is healthy after setup
         puts "\n🏥 Performing final health check..."
         verify_cluster_health
@@ -68,6 +70,8 @@ module ActivePostgres
         end
 
         setup_standby(standby_host)
+
+        setup_dns_failover if dns_failover_enabled?
       end
 
       private
@@ -91,15 +95,22 @@ module ActivePostgres
         repmgr_config = config.component_config(:repmgr)
         version = config.version
         repmgr_password = normalize_repmgr_password(secrets.resolve('repmgr_password'))
+        replication_password = normalize_replication_password(secrets.resolve('replication_password'))
         secrets_obj = secrets
         repmgr_user = config.repmgr_user
         repmgr_db = config.repmgr_database
+        replication_user = config.replication_user
+        if replication_user == repmgr_user && replication_password != repmgr_password
+          raise Error, 'replication_user matches repmgr user but passwords differ. Use a distinct replication_user or the same password.'
+        end
+        effective_replication_password = replication_user == repmgr_user ? repmgr_password : replication_password
 
         # Variables used in ERB templates via binding
         _ = repmgr_config
         _ = secrets_obj
 
-        ssh_executor.recreate_cluster(host, version)
+        cluster_exists = cluster_exists?(host, version)
+        ssh_executor.ensure_cluster_exists(host, version) unless cluster_exists
 
         puts '  Configuring PostgreSQL...'
         core_config = config.component_config(:core)
@@ -117,12 +128,14 @@ module ActivePostgres
         upload_template(host, 'pg_hba.conf.erb', "/etc/postgresql/#{version}/main/pg_hba.conf", binding,
                         owner: 'postgres:postgres')
 
-        # Regenerate SSL certificates if SSL is enabled (cluster recreation deleted them)
+        # Ensure SSL certificates are present if SSL is enabled
         if config.component_enabled?(:ssl)
-          puts '  Regenerating SSL certificates...'
-          regenerate_ssl_certs(host, version)
+          puts '  Ensuring SSL certificates...'
+          ensure_ssl_certs(host, version, force: !cluster_exists)
         end
 
+        repmgr_component = self
+        executor = ssh_executor
         ssh_executor.execute_on_host(host) do
           execute :sudo, 'pg_ctlcluster', version.to_s, 'main', 'restart'
 
@@ -148,26 +161,24 @@ module ActivePostgres
           execute :sudo, '-u', 'postgres', 'psql', '-l'
 
           info 'Creating repmgr database and user...'
-          escaped_password = repmgr_password.gsub("'", "''")
-          sql = [
-            "DROP DATABASE IF EXISTS #{repmgr_db}",
-            "DROP USER IF EXISTS #{repmgr_user}",
-            "CREATE USER #{repmgr_user} WITH SUPERUSER PASSWORD '#{escaped_password}'",
-            "CREATE DATABASE #{repmgr_db} OWNER #{repmgr_user}",
-            '' # Ensures trailing semicolon after join
-          ].join('; ')
-          upload! StringIO.new(sql), '/tmp/setup_repmgr.sql'
-          execute :chmod, '644', '/tmp/setup_repmgr.sql'
-          execute :sudo, '-u', 'postgres', 'psql', '-p', '5432', '-f', '/tmp/setup_repmgr.sql'
-          execute :rm, '-f', '/tmp/setup_repmgr.sql'
+          repmgr_sql = repmgr_component.send(:build_repmgr_setup_sql, repmgr_user, repmgr_db, repmgr_password)
+          executor.run_sql_on_backend(self, repmgr_sql, postgres_user: 'postgres', port: 5432, tuples_only: false,
+                                           capture: false)
+
+          if replication_user != repmgr_user
+            info 'Ensuring replication user exists...'
+            repl_sql = repmgr_component.send(:build_replication_user_sql, replication_user, effective_replication_password)
+            executor.run_sql_on_backend(self, repl_sql, postgres_user: 'postgres', port: 5432, tuples_only: false,
+                                             capture: false)
+          end
 
           info 'Reloading PostgreSQL configuration to apply pg_hba.conf changes...'
           execute :sudo, 'pg_ctlcluster', version.to_s, 'main', 'reload'
         end
 
-        setup_pgpass_file(host, repmgr_password)
+        setup_pgpass_file(host, repmgr_password, replication_password: effective_replication_password)
 
-        upload_template(host, 'repmgr.conf.erb', '/etc/repmgr.conf', binding, mode: '644', owner: 'postgres:postgres')
+        upload_template(host, 'repmgr.conf.erb', '/etc/repmgr.conf', binding, mode: '600', owner: 'postgres:postgres')
 
         ssh_executor.execute_on_host(host) do
           info 'Registering primary with repmgr...'
@@ -176,22 +187,37 @@ module ActivePostgres
                   'repmgr', 'primary', 'register',
                   '-f', '/etc/repmgr.conf', '--force'
 
-          # Verify registration succeeded
-          sleep 2
-          cluster_show = begin
-            capture(:sudo, '-u', 'postgres', 'repmgr', 'cluster', 'show', '-f',
-                    '/etc/repmgr.conf')
-          rescue StandardError
-            'Could not show cluster'
+          # Verify registration succeeded (repmgr can take a moment to report)
+          cluster_show = nil
+          5.times do |attempt|
+            cluster_show = capture(:sudo, '-u', 'postgres', 'bash', '-lc',
+                                   "repmgr cluster show -f /etc/repmgr.conf 2>&1", raise_on_non_zero_exit: false).to_s
+
+            break if cluster_show.match?(/primary/i)
+
+            sleep 2 if attempt < 4
           end
 
-          unless cluster_show.include?('primary') && cluster_show.include?('running')
-            error '✗ Primary registration verification failed'
-            raise 'Primary registration failed'
+          unless cluster_show && cluster_show.match?(/primary/i)
+            # Fallback: verify via repmgr metadata in the repmgr database
+            db_check = executor.run_sql_on_backend(self,
+                                                   'SELECT type FROM repmgr.nodes WHERE node_id = 1;',
+                                                   postgres_user: 'postgres',
+                                                   database: repmgr_db,
+                                                   tuples_only: true,
+                                                   capture: true).to_s
+
+            unless db_check.match?(/primary/i)
+              safe_show = LogSanitizer.sanitize(cluster_show.to_s)
+              error "✗ Primary registration verification failed:\n#{safe_show}"
+              raise 'Primary registration failed'
+            end
           end
 
           info '✓ Primary successfully registered with repmgr!'
         end
+
+        enable_repmgrd_if_configured(host, repmgr_config)
       end
 
       def setup_standby(standby_host)
@@ -205,6 +231,7 @@ module ActivePostgres
         repmgr_user = config.repmgr_user
         repmgr_db = config.repmgr_database
         postgres_user = config.postgres_user
+        replication_user = config.replication_user
 
         # Variables used in ERB templates via binding
         _ = host
@@ -213,10 +240,27 @@ module ActivePostgres
 
         node_id = config.standby_hosts.index(standby_host) + 2
         repmgr_password = normalize_repmgr_password(secrets_obj.resolve('repmgr_password'))
+        replication_password = normalize_replication_password(secrets_obj.resolve('replication_password'))
+        if replication_user == repmgr_user && replication_password != repmgr_password
+          raise Error, 'replication_user matches repmgr user but passwords differ. Use a distinct replication_user or the same password.'
+        end
+        effective_replication_password = replication_user == repmgr_user ? repmgr_password : replication_password
 
         ensure_primary_registered
 
-        setup_pgpass_file(standby_host, repmgr_password, primary_replication_host)
+        setup_pgpass_file(standby_host, repmgr_password, replication_password: effective_replication_password,
+                                                      primary_ip: primary_replication_host)
+
+        if standby_already_configured?(standby_host)
+          puts '  Standby already configured, updating configs...'
+          upload_template(standby_host, 'repmgr.conf.erb', '/etc/repmgr.conf', binding, mode: '600',
+                                                                                        owner: 'postgres:postgres')
+          update_postgres_configs_on_standby(standby_host, version)
+          ensure_ssl_certs(standby_host, version) if config.component_enabled?(:ssl)
+          register_standby_with_primary(standby_host)
+          enable_repmgrd_if_configured(standby_host, repmgr_config)
+          return
+        end
 
         ssh_executor.execute_on_host(standby_host) do
           info 'Preparing standby cluster...'
@@ -244,12 +288,10 @@ module ActivePostgres
           info 'Cloning from primary over private network...'
           # Create a temporary repmgr config for cloning that points to the primary
           # The regular config points to localhost which doesn't work during initial clone
-          escaped_password = repmgr_password.gsub("'", "\\\\'")
-
           temp_repmgr_conf = <<~CONF
             node_id=#{node_id}
             node_name='#{standby_host}'
-            conninfo='host=#{primary_replication_host} user=#{repmgr_user} dbname=#{repmgr_db} password=#{escaped_password} connect_timeout=10'
+            conninfo='host=#{primary_replication_host} user=#{repmgr_user} dbname=#{repmgr_db} connect_timeout=10'
             data_directory='/var/lib/postgresql/#{version}/main'
           CONF
 
@@ -257,7 +299,7 @@ module ActivePostgres
           upload! StringIO.new(temp_repmgr_conf), '/tmp/repmgr_clone.conf'
           execute :sudo, 'mv', '/tmp/repmgr_clone.conf', '/etc/repmgr_clone.conf'
           execute :sudo, 'chown', 'postgres:postgres', '/etc/repmgr_clone.conf'
-          execute :sudo, 'chmod', '644', '/etc/repmgr_clone.conf'
+          execute :sudo, 'chmod', '600', '/etc/repmgr_clone.conf'
 
           info 'Running: repmgr standby clone (this may take a few minutes to copy the database)...'
 
@@ -300,7 +342,7 @@ module ActivePostgres
 
         # Upload the proper repmgr.conf now that clone is complete
         puts '  Uploading final repmgr configuration...'
-        upload_template(standby_host, 'repmgr.conf.erb', '/etc/repmgr.conf', binding, mode: '644',
+        upload_template(standby_host, 'repmgr.conf.erb', '/etc/repmgr.conf', binding, mode: '600',
                                                                                       owner: 'postgres:postgres')
 
         # Create config directory and setup PostgreSQL configuration
@@ -327,10 +369,10 @@ module ActivePostgres
         upload_template(standby_host, 'pg_hba.conf.erb', "/etc/postgresql/#{version}/main/pg_hba.conf", binding,
                         owner: 'postgres:postgres')
 
-        # Regenerate SSL certificates if SSL is enabled (clone doesn't copy config files)
+        # Ensure SSL certificates if SSL is enabled (clone doesn't copy config files)
         if config.component_enabled?(:ssl)
-          puts '  Regenerating SSL certificates on standby...'
-          regenerate_ssl_certs(standby_host, version)
+          puts '  Ensuring SSL certificates on standby...'
+          ensure_ssl_certs(standby_host, version, force: true)
         end
 
         ssh_executor.execute_on_host(standby_host) do
@@ -357,6 +399,146 @@ module ActivePostgres
         end
 
         register_standby_with_primary(standby_host)
+        enable_repmgrd_if_configured(standby_host, repmgr_config)
+      end
+
+      def setup_dns_failover
+        dns_config = dns_failover_config
+        return unless dns_config
+
+        dns_servers = normalize_dns_servers(dns_config[:dns_servers])
+        dns_private_ips = dns_servers.map { |server| server[:private_ip] }.reject(&:empty?)
+        dns_ssh_hosts = dns_servers.map { |server| server[:ssh_host] }.reject(&:empty?)
+        dns_user = dns_config[:dns_user] || config.user
+        dns_ssh_key_path = dns_config[:ssh_key_path] || '/var/lib/postgresql/.ssh/active_postgres_dns'
+        ssh_strict_host_key = normalize_dns_host_key_verification(
+          dns_config[:ssh_host_key_verification] || config.ssh_host_key_verification
+        )
+
+        pub_keys = {}
+        config.all_hosts.each do |host|
+          pub_keys[host] = ensure_dns_ssh_key(host, dns_ssh_key_path, dns_private_ips)
+        end
+
+        dns_ssh_hosts.each do |dns_server|
+          authorize_dns_keys(dns_server, dns_user, pub_keys.values.compact)
+        end
+
+        config.all_hosts.each do |host|
+          install_dns_failover_script(host, dns_config, dns_private_ips, dns_user, dns_ssh_key_path, ssh_strict_host_key)
+        end
+      end
+
+      def dns_failover_enabled?
+        dns_failover_config != nil
+      end
+
+      def dns_failover_config
+        repmgr_config = config.component_config(:repmgr)
+        dns_config = repmgr_config[:dns_failover]
+        return nil unless dns_config && dns_config[:enabled]
+
+        dns_config
+      end
+
+      def normalize_dns_servers(raw_servers)
+        Array(raw_servers).map do |server|
+          if server.is_a?(Hash)
+            ssh_host = server[:ssh_host] || server['ssh_host'] || server[:host] || server['host']
+            private_ip = server[:private_ip] || server['private_ip'] || server[:ip] || server['ip']
+            private_ip ||= ssh_host
+            ssh_host ||= private_ip
+            { ssh_host: ssh_host.to_s, private_ip: private_ip.to_s }
+          else
+            value = server.to_s
+            { ssh_host: value, private_ip: value }
+          end
+        end
+      end
+
+      def ensure_dns_ssh_key(host, key_path, dns_servers)
+        postgres_user = config.postgres_user
+        public_key = nil
+
+        ssh_executor.execute_on_host(host) do
+          execute :sudo, 'mkdir', '-p', '/var/lib/postgresql/.ssh'
+          execute :sudo, 'chown', "#{postgres_user}:#{postgres_user}", '/var/lib/postgresql/.ssh'
+          execute :sudo, 'chmod', '700', '/var/lib/postgresql/.ssh'
+
+          unless test(:sudo, '-u', postgres_user, 'test', '-f', key_path)
+            execute :sudo, '-u', postgres_user, "ssh-keygen -t ed25519 -N '' -f #{key_path}"
+          end
+
+          public_key = capture(:sudo, '-u', postgres_user, 'cat', "#{key_path}.pub").strip
+
+          unless dns_servers.empty?
+            execute :sudo, '-u', postgres_user, 'touch', '/var/lib/postgresql/.ssh/known_hosts'
+            scan_cmd = "ssh-keyscan -H #{dns_servers.join(' ')} >> /var/lib/postgresql/.ssh/known_hosts 2>/dev/null || true"
+            execute :sudo, '-u', postgres_user, 'bash', '-c', scan_cmd
+            execute :sudo, '-u', postgres_user, 'chmod', '600', '/var/lib/postgresql/.ssh/known_hosts'
+          end
+        end
+
+        public_key
+      end
+
+      def authorize_dns_keys(dns_server, dns_user, keys)
+        return if keys.empty?
+
+        ssh_executor.execute_on_host_as(dns_server, dns_user) do
+          execute :mkdir, '-p', '~/.ssh'
+          execute :chmod, '700', '~/.ssh'
+          execute :touch, '~/.ssh/authorized_keys'
+          execute :chmod, '600', '~/.ssh/authorized_keys'
+
+          keys.each do |key|
+            next if key.to_s.empty?
+
+            upload! StringIO.new("#{key}\n"), '/tmp/active_postgres_dns_key.pub'
+            execute :bash, '-c',
+                    "grep -qxF -f /tmp/active_postgres_dns_key.pub ~/.ssh/authorized_keys || " \
+                    "cat /tmp/active_postgres_dns_key.pub >> ~/.ssh/authorized_keys"
+            execute :rm, '-f', '/tmp/active_postgres_dns_key.pub'
+          end
+        end
+      rescue Net::SSH::ConnectionTimeout, Net::SSH::AuthenticationFailed => e
+        raise Error,
+              "Failed to SSH to DNS server #{dns_server} as #{dns_user}. " \
+              'If you run setup outside the mesh, use dns_failover.dns_servers entries ' \
+              'with host/private_ip or run setup from a mesh node. ' \
+              "(#{e.class})"
+      end
+
+      def install_dns_failover_script(host, dns_config, dns_servers, dns_user, dns_ssh_key_path, ssh_strict_host_key)
+        return if dns_servers.empty?
+
+        domain = dns_config[:domain] || 'mesh'
+        primary_record = dns_config[:primary_record] || "db-primary.#{domain}"
+        replica_record = dns_config[:replica_record] || "db-replica.#{domain}"
+
+        _ = primary_record
+        _ = replica_record
+        _ = dns_servers
+        _ = dns_user
+        _ = dns_ssh_key_path
+        _ = ssh_strict_host_key
+
+        upload_template(host, 'repmgr_dns_failover.sh.erb', '/usr/local/bin/active-postgres-dns-failover', binding,
+                        mode: '755', owner: 'root:root')
+      end
+
+      def normalize_dns_host_key_verification(value)
+        normalized = case value
+                     when Symbol
+                       value
+                     else
+                       value.to_s.strip.downcase.tr('-', '_').to_sym
+                     end
+
+        return 'accept-new' if normalized == :accept_new
+        return 'no' if normalized == :never
+
+        'yes'
       end
 
       def register_standby_with_primary(standby_host)
@@ -374,6 +556,7 @@ module ActivePostgres
           info 'Setting primary_conninfo with application_name...'
           upload! StringIO.new(sql_content), temp_sql
           execute :sudo, 'chown', "#{postgres_user}:#{postgres_user}", temp_sql
+          execute :sudo, 'chmod', '600', temp_sql
 
           begin
             execute :sudo, '-u', postgres_user, 'psql', '-f', temp_sql
@@ -402,6 +585,8 @@ module ActivePostgres
         standby_hosts = config.standby_hosts
         version = config.version
         postgres_user = config.postgres_user
+        repmgr_db = config.repmgr_database
+        executor = ssh_executor
         all_healthy = true
 
         # Check primary
@@ -424,24 +609,35 @@ module ActivePostgres
           end
 
           # Check repmgr registration
-          cluster_output = begin
-            capture(:sudo, '-u', 'postgres', 'repmgr', 'cluster', 'show')
-          rescue StandardError
-            ''
-          end
+          cluster_output = capture(:sudo, '-u', 'postgres',
+                                   'repmgr', '-f', '/etc/repmgr.conf', 'cluster', 'show',
+                                   raise_on_non_zero_exit: false).to_s
           # Primary always has node_id=1, check if it's registered and running
-          if cluster_output.match?(/\s+1\s+\|.*primary.*\*\s+running/)
+          if cluster_output.match?(/\s+1\s+\|.*primary.*\*\s+running/i)
             info '✓ Primary is registered with repmgr'
           else
-            error '✗ Primary is not registered with repmgr'
-            all_healthy = false
+            db_check = executor.run_sql_on_backend(self,
+                                                   'SELECT type FROM repmgr.nodes WHERE node_id = 1 AND active IS TRUE;',
+                                                   postgres_user: postgres_user,
+                                                   database: repmgr_db,
+                                                   tuples_only: true,
+                                                   capture: true).to_s
+            if db_check.match?(/primary/i)
+              info '✓ Primary is registered with repmgr'
+            else
+              error '✗ Primary is not registered with repmgr'
+              all_healthy = false
+            end
           end
 
           # Check replication slots (if standbys exist)
           if standby_hosts.any?
             begin
-              slots_sql = 'SELECT slot_name, active FROM pg_replication_slots;'
-              slots = capture(:sudo, '-u', postgres_user, 'psql', '-c', "'#{slots_sql}'")
+              slots = executor.run_sql_on_backend(self,
+                                                  'SELECT slot_name, active FROM pg_replication_slots;',
+                                                  postgres_user: postgres_user,
+                                                  tuples_only: false,
+                                                  capture: true)
               info "Replication slots:\n#{slots}"
             rescue StandardError => e
               error "Failed to fetch replication slots: #{e.message}"
@@ -472,8 +668,11 @@ module ActivePostgres
 
             # Check replication status
             begin
-              recovery_sql = 'SELECT pg_is_in_recovery();'
-              rep_status = capture(:sudo, '-u', postgres_user, 'psql', '-t', '-c', "'#{recovery_sql}'")
+              rep_status = executor.run_sql_on_backend(self,
+                                                      'SELECT pg_is_in_recovery();',
+                                                      postgres_user: postgres_user,
+                                                      tuples_only: true,
+                                                      capture: true).to_s
               if rep_status.include?('t')
                 info '✓ Standby is in recovery mode (receiving replication)'
               else
@@ -487,8 +686,11 @@ module ActivePostgres
 
             # Check lag
             begin
-              lag_sql = 'SELECT EXTRACT(EPOCH FROM (now() - pg_last_xact_replay_timestamp()))::int AS lag;'
-              lag_result = capture(:sudo, '-u', postgres_user, 'psql', '-t', '-c', "'#{lag_sql}'").strip
+              lag_result = executor.run_sql_on_backend(self,
+                                                      'SELECT EXTRACT(EPOCH FROM (now() - pg_last_xact_replay_timestamp()))::int AS lag;',
+                                                      postgres_user: postgres_user,
+                                                      tuples_only: true,
+                                                      capture: true).to_s.strip
               info "Replication lag: #{lag_result}"
             rescue StandardError => e
               error "Failed to get replication lag: #{e.message}"
@@ -500,11 +702,9 @@ module ActivePostgres
         # Show final cluster status
         ssh_executor.execute_on_host(primary_host) do
           info 'Final cluster status:'
-          cluster_show = begin
-            capture(:sudo, '-u', 'postgres', 'repmgr', 'cluster', 'show')
-          rescue StandardError
-            'Error'
-          end
+          cluster_show = capture(:sudo, '-u', 'postgres',
+                                 'repmgr', '-f', '/etc/repmgr.conf', 'cluster', 'show',
+                                 raise_on_non_zero_exit: false).to_s
           safe_show = LogSanitizer.sanitize(cluster_show)
           info safe_show
         end
@@ -518,10 +718,11 @@ module ActivePostgres
         all_healthy
       end
 
-      def setup_pgpass_file(host, password, primary_ip = nil)
+      def setup_pgpass_file(host, repmgr_password, replication_password: nil, primary_ip: nil)
         # Create .pgpass file for postgres user to avoid password exposure in logs
         # Format: hostname:port:database:username:password
-        pgpass_content = build_pgpass_content(host, password, primary_ip)
+        pgpass_content = build_pgpass_content(host, repmgr_password, replication_password: replication_password,
+                                                                   primary_ip: primary_ip)
 
         ssh_executor.execute_on_host(host) do
           # Create .pgpass in postgres user's home directory
@@ -534,10 +735,13 @@ module ActivePostgres
         end
       end
 
-      def build_pgpass_content(host, password, primary_ip)
-        escaped_password = escape_pgpass_value(password)
+      def build_pgpass_content(host, repmgr_password, replication_password: nil, primary_ip: nil)
+        escaped_password = escape_pgpass_value(repmgr_password)
         repmgr_user = config.repmgr_user
         repmgr_db = config.repmgr_database
+        replication_user = config.replication_user
+        replication_password ||= secrets.resolve('replication_password')
+        replication_password = normalize_replication_password(replication_password) if replication_password
 
         entries = [
           "localhost:5432:#{repmgr_db}:#{repmgr_user}:#{escaped_password}",
@@ -557,7 +761,31 @@ module ActivePostgres
           entries << "#{local_replication_host}:5432:*:#{repmgr_user}:#{escaped_password}"
         end
 
-        "#{entries.join("\n")}\n"
+        # Allow repmgr to connect to all nodes for cluster status checks
+        config.all_hosts.each do |node|
+          replication_host = config.replication_host_for(node)
+          next if replication_host.nil? || %w[localhost 127.0.0.1].include?(replication_host)
+
+          entries << "#{replication_host}:5432:#{repmgr_db}:#{repmgr_user}:#{escaped_password}"
+          entries << "#{replication_host}:5432:*:#{repmgr_user}:#{escaped_password}"
+        end
+
+        if replication_password && !replication_password.empty?
+          escaped_replication_password = escape_pgpass_value(replication_password)
+          entries << "localhost:5432:replication:#{replication_user}:#{escaped_replication_password}"
+          entries << "127.0.0.1:5432:replication:#{replication_user}:#{escaped_replication_password}"
+          entries << "localhost:5432:*:#{replication_user}:#{escaped_replication_password}"
+          entries << "127.0.0.1:5432:*:#{replication_user}:#{escaped_replication_password}"
+          if primary_ip
+            entries << "#{primary_ip}:5432:replication:#{replication_user}:#{escaped_replication_password}"
+            entries << "#{primary_ip}:5432:*:#{replication_user}:#{escaped_replication_password}"
+          end
+          if local_replication_host && !%w[localhost 127.0.0.1].include?(local_replication_host)
+            entries << "#{local_replication_host}:5432:replication:#{replication_user}:#{escaped_replication_password}"
+            entries << "#{local_replication_host}:5432:*:#{replication_user}:#{escaped_replication_password}"
+          end
+        end
+        "#{entries.uniq.join("\n")}\n"
       end
 
       def escape_pgpass_value(value)
@@ -571,13 +799,27 @@ module ActivePostgres
         primary_host = config.primary_replication_host
         repmgr_user = config.repmgr_user
         repmgr_db = config.repmgr_database
-        "host=#{primary_host} user=#{repmgr_user} dbname=#{repmgr_db} application_name=#{standby_label}"
+        replication_password = secrets.resolve('replication_password')
+        replication_password = normalize_replication_password(replication_password) if replication_password
+        replication_user = config.replication_user
+
+        user = replication_password && !replication_password.empty? ? replication_user : repmgr_user
+        dbname = replication_password && !replication_password.empty? ? 'replication' : repmgr_db
+        "host=#{primary_host} user=#{user} dbname=#{dbname} application_name=#{standby_label}"
       end
 
       def normalize_repmgr_password(raw_password)
         password = raw_password.to_s.rstrip
 
         raise 'repmgr_password secret is missing' if password.empty?
+
+        password
+      end
+
+      def normalize_replication_password(raw_password)
+        password = raw_password.to_s.rstrip
+
+        raise 'replication_password secret is missing' if password.empty?
 
         password
       end
@@ -651,6 +893,133 @@ module ActivePostgres
             execute :sudo, 'chmod', '600', key_path
           end
         end
+      end
+
+      def ensure_ssl_certs(host, version, force: false)
+        ssl_cert = secrets.resolve('ssl_cert')
+        ssl_key = secrets.resolve('ssl_key')
+
+        return regenerate_ssl_certs(host, version) if force
+
+        if ssl_cert && ssl_key
+          regenerate_ssl_certs(host, version)
+          return
+        end
+
+        cert_path = "/etc/postgresql/#{version}/main/server.crt"
+        key_path = "/etc/postgresql/#{version}/main/server.key"
+
+        cert_exists = false
+        key_exists = false
+
+        ssh_executor.execute_on_host(host) do
+          cert_exists = test(:sudo, 'test', '-f', cert_path)
+          key_exists = test(:sudo, 'test', '-f', key_path)
+        end
+
+        regenerate_ssl_certs(host, version) unless cert_exists && key_exists
+      end
+
+      def cluster_exists?(host, version)
+        exists = false
+        ssh_executor.execute_on_host(host) do
+          exists = test(:sudo, 'test', '-d', "/var/lib/postgresql/#{version}/main/base")
+        end
+        exists
+      rescue StandardError
+        false
+      end
+
+      def standby_already_configured?(host)
+        version = config.version
+        postgres_user = config.postgres_user
+        configured = false
+
+        ssh_executor.execute_on_host(host) do
+          data_dir = test(:sudo, 'test', '-d', "/var/lib/postgresql/#{version}/main/base")
+          repmgr_conf = test(:sudo, 'test', '-f', '/etc/repmgr.conf')
+          clusters = begin
+            capture(:sudo, 'pg_lsclusters', '-h')
+          rescue StandardError
+            ''
+          end
+          online = clusters.lines.any? { |line| line.include?(version.to_s) && line.include?('main') && line.include?('online') }
+          in_recovery = begin
+            capture(:sudo, '-u', postgres_user, 'psql', '-tA', '-c', '"SELECT pg_is_in_recovery();"').strip == 't'
+          rescue StandardError
+            false
+          end
+
+          configured = data_dir && repmgr_conf && online && in_recovery
+        end
+
+        configured
+      rescue StandardError
+        false
+      end
+
+      def update_postgres_configs_on_standby(host, version)
+        core_config = config.component_config(:core)
+        component_config = core_config
+        pg_config = component_config[:postgresql] || {}
+        private_ip = config.replication_host_for(host)
+        pg_config = substitute_private_ip(pg_config, private_ip)
+        _ = pg_config
+
+        upload_template(host, 'postgresql.conf.erb', "/etc/postgresql/#{version}/main/postgresql.conf",
+                        binding, owner: 'postgres:postgres')
+        upload_template(host, 'pg_hba.conf.erb', "/etc/postgresql/#{version}/main/pg_hba.conf",
+                        binding, owner: 'postgres:postgres')
+
+        ssh_executor.restart_postgres(host, version)
+      end
+
+      def enable_repmgrd_if_configured(host, repmgr_config)
+        return if repmgr_config[:auto_failover] == false
+
+        ssh_executor.execute_on_host(host) do
+          begin
+            execute :sudo, 'systemctl', 'enable', 'repmgrd'
+            execute :sudo, 'systemctl', 'restart', 'repmgrd'
+          rescue StandardError
+            nil
+          end
+        end
+      end
+
+      def build_repmgr_setup_sql(repmgr_user, repmgr_db, repmgr_password)
+        escaped_password = repmgr_password.gsub("'", "''")
+
+        [
+          'DO $$',
+          'BEGIN',
+          "  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '#{repmgr_user}') THEN",
+          "    CREATE USER #{repmgr_user} WITH SUPERUSER PASSWORD '#{escaped_password}';",
+          '  ELSE',
+          "    ALTER USER #{repmgr_user} WITH SUPERUSER PASSWORD '#{escaped_password}';",
+          '  END IF;',
+          'END $$;',
+          '',
+          "SELECT 'CREATE DATABASE #{repmgr_db} OWNER #{repmgr_user}'",
+          "WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '#{repmgr_db}')\\gexec",
+          ''
+        ].join("\n")
+      end
+
+      def build_replication_user_sql(replication_user, replication_password)
+        escaped_password = replication_password.gsub("'", "''")
+
+        [
+          'DO $$',
+          'BEGIN',
+          "  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '#{replication_user}') THEN",
+          "    CREATE USER #{replication_user} WITH REPLICATION LOGIN PASSWORD '#{escaped_password}';",
+          '  ELSE',
+          "    ALTER USER #{replication_user} WITH REPLICATION LOGIN PASSWORD '#{escaped_password}';",
+          '  END IF;',
+          'END $$;',
+          ''
+        ].join("\n")
       end
     end
   end

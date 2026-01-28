@@ -72,7 +72,7 @@ module ActivePostgres
       def install_on_host(host, create_stanza: true)
         puts "  Installing pgBackRest on #{host}..."
 
-        pgbackrest_config = config.component_config(:pgbackrest)
+        pgbackrest_config = secrets.resolve_value(config.component_config(:pgbackrest))
         postgres_user = config.postgres_user
         secrets_obj = secrets
         _ = pgbackrest_config # Used in ERB template
@@ -84,7 +84,8 @@ module ActivePostgres
         end
 
         # Upload configuration
-        upload_template(host, 'pgbackrest.conf.erb', '/etc/pgbackrest.conf', binding, mode: '644')
+        upload_template(host, 'pgbackrest.conf.erb', '/etc/pgbackrest.conf', binding,
+                        mode: '640', owner: "root:#{postgres_user}")
 
         ssh_executor.execute_on_host(host) do
           execute :sudo, 'rm', '-rf', '/var/lib/pgbackrest', '||', 'true'
@@ -125,12 +126,9 @@ module ActivePostgres
           #{schedule} #{postgres_user} pgbackrest --stanza=main --type=full backup
         CRON
 
-        ssh_executor.execute_on_host(host) do
-          # Install cron job in /etc/cron.d (system cron directory)
-          execute :sudo, 'bash', '-c', "cat > /etc/cron.d/pgbackrest-backup << 'EOF'\n#{cron_content}EOF"
-          execute :sudo, 'chmod', '644', '/etc/cron.d/pgbackrest-backup'
-          execute :sudo, 'chown', 'root:root', '/etc/cron.d/pgbackrest-backup'
-        end
+        # Install cron job in /etc/cron.d (system cron directory)
+        # Use a temp file + sudo mv to avoid shell redirection permission issues.
+        ssh_executor.upload_file(host, cron_content, '/etc/cron.d/pgbackrest-backup', mode: '644', owner: 'root:root')
       end
 
       def remove_backup_schedule(host)

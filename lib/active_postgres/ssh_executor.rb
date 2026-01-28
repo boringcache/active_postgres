@@ -22,6 +22,10 @@ module ActivePostgres
       on("#{config.user}@#{host}", &)
     end
 
+    def execute_on_host_as(host, user, &)
+      on("#{user}@#{host}", &)
+    end
+
     def execute_on_primary(&)
       execute_on_host(config.primary_host, &)
     end
@@ -94,7 +98,7 @@ module ActivePostgres
 
         info 'Configuring PostgreSQL apt repository...'
         pgdg_repo = "'echo \"deb [signed-by=/usr/share/keyrings/postgresql-archive-keyring.gpg] " \
-                    'http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > ' \
+                    'https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > ' \
                     "/etc/apt/sources.list.d/pgdg.list'"
         execute :sudo, 'sh', '-c', pgdg_repo
 
@@ -200,22 +204,40 @@ module ActivePostgres
       result
     end
 
-    def run_sql(host, sql)
+    def run_sql(host, sql, postgres_user: config.postgres_user, port: nil, database: nil, tuples_only: true,
+                capture: true)
       result = nil
-      postgres_user = config.postgres_user
+      executor = self
       execute_on_host(host) do
-        # Use a temporary file to avoid shell escaping issues with special characters
-        temp_file = "/tmp/query_#{SecureRandom.hex(8)}.sql"
-        upload! StringIO.new(sql), temp_file
-        execute :chmod, '644', temp_file
-
-        begin
-          result = capture(:sudo, '-u', postgres_user, 'psql', '-t', '-f', temp_file)
-        ensure
-          execute :rm, '-f', temp_file
-        end
+        backend = self
+        result = executor.run_sql_on_backend(backend, sql,
+                                    postgres_user: postgres_user,
+                                    port: port,
+                                    database: database,
+                                    tuples_only: tuples_only,
+                                    capture: capture)
       end
       result
+    end
+
+    def run_sql_on_backend(backend, sql, postgres_user: config.postgres_user, port: nil, database: nil,
+                           tuples_only: true, capture: true)
+      # Use a temporary file to avoid shell escaping issues with special characters
+      temp_file = "/tmp/active_postgres_#{SecureRandom.hex(8)}.sql"
+      backend.upload! StringIO.new(sql), temp_file
+      backend.execute :chmod, '600', temp_file
+      backend.execute :sudo, 'chown', "#{postgres_user}:#{postgres_user}", temp_file
+
+      cmd = [:sudo, '-u', postgres_user, 'psql']
+      cmd << '-t' if tuples_only
+      cmd += ['-p', port.to_s] if port
+      cmd += ['-d', database.to_s] if database
+      cmd += ['-f', temp_file]
+
+      result = capture ? backend.capture(*cmd) : backend.execute(*cmd)
+      result
+    ensure
+      backend.execute :sudo, 'rm', '-f', temp_file
     end
 
     def ensure_cluster_exists(host, version)
@@ -280,7 +302,7 @@ module ActivePostgres
           keys_only: true,
           forward_agent: false,
           auth_methods: ['publickey'],
-          verify_host_key: :accept_new,
+          verify_host_key: config.ssh_host_key_verification || :always,
           timeout: 10,
           number_of_password_prompts: 0
         }
