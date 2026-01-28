@@ -42,16 +42,20 @@ class PgBouncerTest < Minitest::Test
   def test_pgbouncer_install_calls_create_userlist
     config = stub_config(
       primary_host: 'db.example.com',
+      standby_hosts: ['standby.example.com'],
       postgres_user: 'postgres',
       app_user: 'app_user',
       component_config: {
         pgbouncer: {},
+        ssl: { enabled: false },
         core: { postgresql: { max_connections: 100 } }
       }
     )
 
     ssh_executor = Minitest::Mock.new
     secrets = Minitest::Mock.new
+    secrets.expect(:resolve, nil, ['ssl_chain'])
+    secrets.expect(:resolve, nil, ['ssl_chain'])
     pgbouncer = ActivePostgres::Components::PgBouncer.new(config, ssh_executor, secrets)
 
     ssh_executor.expect(:execute_on_host, nil) do |host|
@@ -59,6 +63,12 @@ class PgBouncerTest < Minitest::Test
     end
     ssh_executor.expect(:execute_on_host, nil) do |host|
       host == 'db.example.com'
+    end
+    ssh_executor.expect(:execute_on_host, nil) do |host|
+      host == 'standby.example.com'
+    end
+    ssh_executor.expect(:execute_on_host, nil) do |host|
+      host == 'standby.example.com'
     end
 
     def pgbouncer.upload_template(*); end

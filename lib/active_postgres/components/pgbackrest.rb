@@ -19,12 +19,18 @@ module ActivePostgres
         config.all_hosts.each do |host|
           ssh_executor.execute_on_host(host) do
             execute :sudo, 'apt-get', 'remove', '-y', 'pgbackrest'
+            execute :sudo, 'rm', '-f', '/etc/cron.d/pgbackrest-backup'
           end
         end
       end
 
       def restart
         puts "pgBackRest is a backup tool and doesn't run as a service."
+      end
+
+      def install_on_standby(host)
+        puts "  Installing pgBackRest on standby #{host}..."
+        install_on_host(host, create_stanza: false)
       end
 
       def run_backup(type = 'full')
@@ -98,6 +104,38 @@ module ActivePostgres
           if create_stanza
             execute :sudo, '-u', postgres_user, 'pgbackrest', '--stanza=main', 'stanza-create'
           end
+        end
+
+        # Set up scheduled backups on primary only
+        if create_stanza && pgbackrest_config[:schedule]
+          setup_backup_schedule(host, pgbackrest_config[:schedule])
+        end
+      end
+
+      def setup_backup_schedule(host, schedule)
+        puts "  Setting up backup schedule: #{schedule}"
+        postgres_user = config.postgres_user
+
+        # Create cron job for scheduled backups
+        # /etc/cron.d format requires username after time spec
+        cron_content = <<~CRON
+          # pgBackRest scheduled backups (managed by active_postgres)
+          SHELL=/bin/bash
+          PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
+          #{schedule} #{postgres_user} pgbackrest --stanza=main --type=full backup
+        CRON
+
+        ssh_executor.execute_on_host(host) do
+          # Install cron job in /etc/cron.d (system cron directory)
+          execute :sudo, 'bash', '-c', "cat > /etc/cron.d/pgbackrest-backup << 'EOF'\n#{cron_content}EOF"
+          execute :sudo, 'chmod', '644', '/etc/cron.d/pgbackrest-backup'
+          execute :sudo, 'chown', 'root:root', '/etc/cron.d/pgbackrest-backup'
+        end
+      end
+
+      def remove_backup_schedule(host)
+        ssh_executor.execute_on_host(host) do
+          execute :sudo, 'rm', '-f', '/etc/cron.d/pgbackrest-backup'
         end
       end
     end

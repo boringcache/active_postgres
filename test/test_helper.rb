@@ -49,6 +49,10 @@ module TestHelpers
       evaluate_override(@component_config_override, name) || {}
     end
 
+    def all_hosts
+      [primary_host] + (standby_hosts || [])
+    end
+
     def primary_replication_host
       replication_host_for(primary_host)
     end

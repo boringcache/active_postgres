@@ -49,7 +49,9 @@ log_pooler_errors = <%= pgbouncer_config[:log_pooler_errors] || 1 %>
 client_tls_sslmode = require
 client_tls_key_file = /etc/pgbouncer/server.key
 client_tls_cert_file = /etc/pgbouncer/server.crt
+<% if has_ca_cert %>
 client_tls_ca_file = /etc/pgbouncer/ca.crt
+<% end %>
 <% end %>
 
 # Process management

@@ -83,8 +83,7 @@ module ActivePostgres
       path = value.sub('rails_credentials:', '')
       keys = path.split('.').map(&:to_sym)
 
-      credentials = Rails.application.credentials
-      keys.reduce(credentials) { |obj, key| obj&.dig(key) }
+      Rails.application.credentials.dig(*keys)
     rescue NameError
       nil
     end

@@ -14,8 +14,9 @@ module ActivePostgres
 
         config.all_hosts.each do |host|
           ssh_executor.execute_on_host(host) do
-            execute :sudo, 'systemctl', 'stop', 'postgres_exporter'
-            execute :sudo, 'systemctl', 'disable', 'postgres_exporter'
+            execute :sudo, 'systemctl', 'stop', 'prometheus-postgres-exporter'
+            execute :sudo, 'systemctl', 'disable', 'prometheus-postgres-exporter'
+            execute :sudo, 'apt-get', 'remove', '-y', 'prometheus-postgres-exporter'
           end
         end
       end
@@ -25,9 +26,14 @@ module ActivePostgres
 
         config.all_hosts.each do |host|
           ssh_executor.execute_on_host(host) do
-            execute :sudo, 'systemctl', 'restart', 'postgres_exporter'
+            execute :sudo, 'systemctl', 'restart', 'prometheus-postgres-exporter'
           end
         end
+      end
+
+      def install_on_standby(standby_host)
+        puts "Installing postgres_exporter on standby #{standby_host}..."
+        install_on_host(standby_host)
       end
 
       private

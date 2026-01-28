@@ -59,6 +59,11 @@ module ActivePostgres
 
         pgbouncer_config = optimal_pool.merge(user_config)
         ssl_enabled = config.component_enabled?(:ssl)
+        has_ca_cert = ssl_enabled && secrets.resolve('ssl_chain')
+        secrets_obj = secrets
+        _ = pgbouncer_config
+        _ = has_ca_cert
+        _ = secrets_obj
 
         puts "  Calculated pool settings for max_connections=#{max_connections}"
 
