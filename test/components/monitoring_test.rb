@@ -15,6 +15,20 @@ class MonitoringTest < Minitest::Test
     assert_equal 9188, exporter_port
   end
 
+  def test_default_node_exporter_port
+    monitoring_config = {}
+    port = monitoring_config[:node_exporter_port] || 9100
+
+    assert_equal 9100, port
+  end
+
+  def test_custom_node_exporter_port
+    monitoring_config = { node_exporter_port: 9200 }
+    port = monitoring_config[:node_exporter_port] || 9100
+
+    assert_equal 9200, port
+  end
+
   def test_install_on_standby_calls_install_on_host
     config = stub_config(
       primary_host: 'primary.example.com',

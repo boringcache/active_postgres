@@ -30,6 +30,9 @@ follow_command='repmgr standby follow -f /etc/repmgr.conf --upstream-node-id=%n'
 
 reconnect_attempts=<%= repmgr_config[:reconnect_attempts] || 6 %>
 reconnect_interval=<%= repmgr_config[:reconnect_interval] || 10 %>
+<% if repmgr_config.key?(:use_rewind) %>
+use_rewind=<%= repmgr_config[:use_rewind] ? 'yes' : 'no' %>
+<% end %>
 
 log_level=INFO
 log_facility=STDERR

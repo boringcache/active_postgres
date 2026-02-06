@@ -294,18 +294,21 @@ module ActivePostgres
         SSHKit.config.format = :pretty
       end
 
-      return unless File.exist?(config.ssh_key)
-
       SSHKit::Backend::Netssh.configure do |ssh|
-        ssh.ssh_options = {
-          keys: [config.ssh_key],
-          keys_only: true,
+        options = {
           forward_agent: false,
           auth_methods: ['publickey'],
           verify_host_key: config.ssh_host_key_verification || :always,
           timeout: 10,
           number_of_password_prompts: 0
         }
+
+        if config.ssh_key && File.exist?(config.ssh_key)
+          options[:keys] = [config.ssh_key]
+          options[:keys_only] = true
+        end
+
+        ssh.ssh_options = options
       end
     end
   end

@@ -13,7 +13,21 @@ module ActivePostgres
     end
 
     private def create_executor
-      DirectExecutor.new(config, quiet: true)
+      if use_ssh_executor?
+        SSHExecutor.new(config, quiet: true)
+      else
+        DirectExecutor.new(config, quiet: true)
+      end
+    end
+
+    def use_ssh_executor?
+      mode = ENV['ACTIVE_POSTGRES_STATUS_MODE'].to_s.strip.downcase
+      return true if mode == 'ssh'
+      return false if mode == 'direct'
+
+      return false if %w[localhost 127.0.0.1 ::1].include?(config.primary_host.to_s)
+
+      true
     end
 
     def show_status
@@ -312,13 +326,21 @@ module ActivePostgres
     end
 
     def check_pgbouncer_direct(host)
-      require 'socket'
-      connection_host = config.connection_host_for(host)
-      pgbouncer_port = config.component_config(:pgbouncer)[:listen_port] || 6432
+      if ssh_executor.respond_to?(:execute_on_host)
+        status = nil
+        ssh_executor.execute_on_host(host) do
+          status = capture(:systemctl, 'is-active', 'pgbouncer', raise_on_non_zero_exit: false).to_s.strip
+        end
+        status == 'active'
+      else
+        require 'socket'
+        connection_host = config.connection_host_for(host)
+        pgbouncer_port = config.component_config(:pgbouncer)[:listen_port] || 6432
 
-      socket = TCPSocket.new(connection_host, pgbouncer_port)
-      socket.close
-      true
+        socket = TCPSocket.new(connection_host, pgbouncer_port)
+        socket.close
+        true
+      end
     rescue StandardError
       false
     end

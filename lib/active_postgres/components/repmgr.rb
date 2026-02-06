@@ -512,12 +512,16 @@ module ActivePostgres
       def install_dns_failover_script(host, dns_config, dns_servers, dns_user, dns_ssh_key_path, ssh_strict_host_key)
         return if dns_servers.empty?
 
-        domain = dns_config[:domain] || 'mesh'
-        primary_record = dns_config[:primary_record] || "db-primary.#{domain}"
-        replica_record = dns_config[:replica_record] || "db-replica.#{domain}"
+        domains = normalize_dns_domains(dns_config)
+        primary_records = normalize_dns_records(dns_config[:primary_records] || dns_config[:primary_record],
+                                               default_prefix: 'db-primary',
+                                               domains: domains)
+        replica_records = normalize_dns_records(dns_config[:replica_records] || dns_config[:replica_record],
+                                               default_prefix: 'db-replica',
+                                               domains: domains)
 
-        _ = primary_record
-        _ = replica_record
+        _ = primary_records
+        _ = replica_records
         _ = dns_servers
         _ = dns_user
         _ = dns_ssh_key_path
@@ -525,6 +529,19 @@ module ActivePostgres
 
         upload_template(host, 'repmgr_dns_failover.sh.erb', '/usr/local/bin/active-postgres-dns-failover', binding,
                         mode: '755', owner: 'root:root')
+      end
+
+      def normalize_dns_domains(dns_config)
+        domains = Array(dns_config[:domains] || dns_config[:domain]).map(&:to_s).map(&:strip).reject(&:empty?)
+        domains = ['mesh'] if domains.empty?
+        domains
+      end
+
+      def normalize_dns_records(value, default_prefix:, domains:)
+        records = Array(value).map(&:to_s).map(&:strip).reject(&:empty?)
+        return records unless records.empty?
+
+        domains.map { |domain| "#{default_prefix}.#{domain}" }
       end
 
       def normalize_dns_host_key_verification(value)

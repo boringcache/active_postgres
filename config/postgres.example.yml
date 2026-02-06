@@ -106,11 +106,15 @@ shared: &shared
       reconnect_interval: 10
       # Optional: dedicated streaming replication user
       replication_user: replication
+      # Use pg_rewind to rejoin old primary after failover (requires data checksums or wal_log_hints=on)
+      # use_rewind: true
       # Optional: update DNS on failover (dnsmasq)
       # dns_failover:
       #   enabled: true
       #   provider: dnsmasq
       #   domain: mesh.internal
+      #   # Or use multiple domains during cutover:
+      #   # domains: [mesh.internal, mesh.v2.internal]
       #   dns_servers:
       #     - host: 18.170.173.14
       #       private_ip: 10.8.0.10
@@ -118,6 +122,9 @@ shared: &shared
       #       private_ip: 10.8.0.110
       #   primary_record: db-primary.mesh.internal
       #   replica_record: db-replica.mesh.internal
+      #   # Or multiple records explicitly:
+      #   # primary_records: [db-primary.mesh.internal, db-primary.mesh.v2.internal]
+      #   # replica_records: [db-replica.mesh.internal, db-replica.mesh.v2.internal]
 
     pgbouncer:
       enabled: true
@@ -138,10 +145,13 @@ shared: &shared
       repo_type: s3  # s3, gcs, azure, local
       s3_bucket: myapp-backups
       s3_region: us-east-1
+      # Ensure retention_archive >= retention_full for PITR safety
       # S3-compatible endpoints (Tigris/MinIO/Wasabi/DO Spaces)
       # s3_endpoint: t3.storage.dev
       # s3_uri_style: path # path or host (path recommended for S3-compatible)
-      schedule: "0 2 * * *"
+      # schedule: "0 2 * * *" # legacy: full backups only
+      schedule_full: "0 2 * * *"
+      schedule_incremental: "0 * * * *"
       retention_full: 7
       retention_archive: 14
     
@@ -149,6 +159,15 @@ shared: &shared
       enabled: true
       exporter_port: 9187
       user: postgres_exporter
+      node_exporter: true
+      node_exporter_port: 9100
+      # node_exporter_listen_address: 10.8.0.10
+      # grafana:
+      #   enabled: true
+      #   host: grafana.example.com
+      #   listen_address: 10.8.0.10
+      #   port: 3000
+      #   prometheus_url: http://prometheus.example.com:9090
     
     ssl:
       enabled: true
@@ -212,12 +231,13 @@ staging:
     repmgr: {enabled: true}   # Enable for HA
   
   # Secrets (choose one method)
-  secrets:
+secrets:
     # Method 1: Environment variables (recommended for CI/CD)
     superuser_password: $POSTGRES_SUPERUSER_PASSWORD
     replication_password: $POSTGRES_REPLICATION_PASSWORD
     repmgr_password: $POSTGRES_REPMGR_PASSWORD
     monitoring_password: $POSTGRES_MONITORING_PASSWORD
+    # grafana_admin_password: $GRAFANA_ADMIN_PASSWORD
     
     # Method 2: Cached local files (after running: active_postgres cache-secrets)
     # superuser_password: $(cat .secrets/superuser_password)
@@ -266,6 +286,7 @@ production:
     superuser_password: rails_credentials:postgres.superuser_password
     replication_password: rails_credentials:postgres.replication_password
     monitoring_password: rails_credentials:postgres.monitoring_password
+    # grafana_admin_password: rails_credentials:postgres.grafana_admin_password
     repmgr_password: rails_credentials:postgres.repmgr_password
     pgbouncer_password: rails_credentials:postgres.pgbouncer_password
     app_password: rails_credentials:postgres.password
@@ -275,6 +296,7 @@ production:
     # replication_password: $POSTGRES_REPLICATION_PASSWORD
     # repmgr_password: $POSTGRES_REPMGR_PASSWORD
     # monitoring_password: $POSTGRES_MONITORING_PASSWORD
+    # grafana_admin_password: $GRAFANA_ADMIN_PASSWORD
     # pgbouncer_password: $POSTGRES_PGBOUNCER_PASSWORD
     # app_password: $POSTGRES_APP_PASSWORD
 

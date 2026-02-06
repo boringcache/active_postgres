@@ -11,6 +11,8 @@ module ActivePostgres
         config.all_hosts.each do |host|
           install_on_host(host)
         end
+
+        install_grafana_if_enabled
       end
 
       def uninstall
@@ -21,8 +23,16 @@ module ActivePostgres
             execute :sudo, 'systemctl', 'stop', 'prometheus-postgres-exporter'
             execute :sudo, 'systemctl', 'disable', 'prometheus-postgres-exporter'
             execute :sudo, 'apt-get', 'remove', '-y', 'prometheus-postgres-exporter'
+
+            if node_exporter_enabled?
+              execute :sudo, 'systemctl', 'stop', 'prometheus-node-exporter'
+              execute :sudo, 'systemctl', 'disable', 'prometheus-node-exporter'
+              execute :sudo, 'apt-get', 'remove', '-y', 'prometheus-node-exporter'
+            end
           end
         end
+
+        uninstall_grafana_if_enabled
       end
 
       def restart
@@ -31,6 +41,7 @@ module ActivePostgres
         config.all_hosts.each do |host|
           ssh_executor.execute_on_host(host) do
             execute :sudo, 'systemctl', 'restart', 'prometheus-postgres-exporter'
+            execute :sudo, 'systemctl', 'restart', 'prometheus-node-exporter' if node_exporter_enabled?
           end
         end
       end
@@ -63,6 +74,8 @@ module ActivePostgres
         end
 
         puts "  Metrics available at: http://#{host}:#{exporter_port}/metrics"
+
+        install_node_exporter(host, monitoring_config) if node_exporter_enabled?
       end
 
       def ensure_monitoring_user
@@ -130,6 +143,158 @@ module ActivePostgres
         password = raw_password.to_s.rstrip
 
         raise Error, 'monitoring_password secret is missing (required for monitoring)' if password.empty?
+
+        password
+      end
+
+      def node_exporter_enabled?
+        monitoring_config = config.component_config(:monitoring)
+        monitoring_config.fetch(:node_exporter, false) == true
+      end
+
+      def install_node_exporter(host, monitoring_config)
+        port = monitoring_config[:node_exporter_port] || 9100
+        listen_address = monitoring_config[:node_exporter_listen_address].to_s.strip
+        puts "  Installing node_exporter on #{host}..."
+
+        ssh_executor.execute_on_host(host) do
+          execute :sudo, 'apt-get', 'install', '-y', '-qq', 'prometheus-node-exporter'
+        end
+
+        configure_node_exporter_service(host, port, listen_address)
+
+        ssh_executor.execute_on_host(host) do
+          execute :sudo, 'systemctl', 'enable', 'prometheus-node-exporter'
+          execute :sudo, 'systemctl', 'restart', 'prometheus-node-exporter'
+        end
+
+        puts "  Node metrics available at: http://#{host}:#{port}/metrics"
+      end
+
+      def configure_node_exporter_service(host, port, listen_address)
+        listen = if listen_address.empty?
+                   ":#{port}"
+                 else
+                   "#{listen_address}:#{port}"
+                 end
+
+        return if listen == ':9100'
+
+        override = <<~CONF
+          [Service]
+          ExecStart=
+          ExecStart=/usr/bin/prometheus-node-exporter --web.listen-address=#{listen}
+        CONF
+
+        ssh_executor.execute_on_host(host) do
+          execute :sudo, 'mkdir', '-p', '/etc/systemd/system/prometheus-node-exporter.service.d'
+          upload! StringIO.new(override), '/tmp/prometheus-node-exporter.override'
+          execute :sudo, 'mv', '/tmp/prometheus-node-exporter.override',
+                  '/etc/systemd/system/prometheus-node-exporter.service.d/override.conf'
+          execute :sudo, 'chown', 'root:root', '/etc/systemd/system/prometheus-node-exporter.service.d/override.conf'
+          execute :sudo, 'chmod', '644', '/etc/systemd/system/prometheus-node-exporter.service.d/override.conf'
+          execute :sudo, 'systemctl', 'daemon-reload'
+        end
+      end
+
+      def install_grafana_if_enabled
+        monitoring_config = config.component_config(:monitoring)
+        grafana_config = monitoring_config[:grafana] || {}
+        return unless grafana_config[:enabled]
+
+        host = grafana_config[:host].to_s.strip
+        raise Error, 'monitoring.grafana.host is required when grafana is enabled' if host.empty?
+
+        admin_password = normalize_grafana_password(secrets.resolve('grafana_admin_password'))
+        prometheus_url = grafana_config[:prometheus_url]
+        listen_address = grafana_config[:listen_address].to_s.strip
+        port = (grafana_config[:port] || 3000).to_i
+
+        puts "Installing Grafana on #{host}..."
+
+        ssh_executor.execute_on_host(host) do
+          execute :sudo, 'apt-get', 'install', '-y', '-qq', 'apt-transport-https', 'software-properties-common', 'wget'
+          execute :sudo, 'wget', '-q', '-O', '/usr/share/keyrings/grafana.gpg', 'https://apt.grafana.com/gpg.key'
+          execute :sudo, 'sh', '-c',
+                  'echo "deb [signed-by=/usr/share/keyrings/grafana.gpg] https://apt.grafana.com stable main" > /etc/apt/sources.list.d/grafana.list'
+          execute :sudo, 'apt-get', 'update', '-qq'
+          execute :sudo, 'apt-get', 'install', '-y', '-qq', 'grafana'
+          execute :sudo, 'systemctl', 'enable', '--now', 'grafana-server'
+          execute :sudo, 'grafana-cli', 'admin', 'reset-admin-password', admin_password
+        end
+
+        configure_grafana_service(host, listen_address, port)
+        configure_grafana_datasource(host, prometheus_url) if prometheus_url
+
+        puts "  Grafana available at: http://#{host}:#{port}"
+      end
+
+      def configure_grafana_service(host, listen_address, port)
+        env_lines = []
+        env_lines << "Environment=\"GF_SERVER_HTTP_ADDR=#{listen_address}\"" unless listen_address.empty?
+        env_lines << "Environment=\"GF_SERVER_HTTP_PORT=#{port}\"" if port && port != 3000
+        return if env_lines.empty?
+
+        override = <<~CONF
+          [Service]
+          #{env_lines.join("\n  ")}
+        CONF
+
+        ssh_executor.execute_on_host(host) do
+          execute :sudo, 'mkdir', '-p', '/etc/systemd/system/grafana-server.service.d'
+          upload! StringIO.new(override), '/tmp/active_postgres_grafana.override'
+          execute :sudo, 'mv', '/tmp/active_postgres_grafana.override',
+                  '/etc/systemd/system/grafana-server.service.d/override.conf'
+          execute :sudo, 'chown', 'root:root', '/etc/systemd/system/grafana-server.service.d/override.conf'
+          execute :sudo, 'chmod', '644', '/etc/systemd/system/grafana-server.service.d/override.conf'
+          execute :sudo, 'systemctl', 'daemon-reload'
+          execute :sudo, 'systemctl', 'restart', 'grafana-server'
+        end
+      end
+
+      def uninstall_grafana_if_enabled
+        monitoring_config = config.component_config(:monitoring)
+        grafana_config = monitoring_config[:grafana] || {}
+        return unless grafana_config[:enabled]
+
+        host = grafana_config[:host].to_s.strip
+        return if host.empty?
+
+        ssh_executor.execute_on_host(host) do
+          execute :sudo, 'systemctl', 'stop', 'grafana-server'
+          execute :sudo, 'systemctl', 'disable', 'grafana-server'
+          execute :sudo, 'apt-get', 'remove', '-y', 'grafana'
+          execute :sudo, 'rm', '-f', '/etc/apt/sources.list.d/grafana.list'
+          execute :sudo, 'rm', '-f', '/usr/share/keyrings/grafana.gpg'
+          execute :sudo, 'rm', '-rf', '/etc/grafana/provisioning/datasources/active_postgres.yml'
+        end
+      end
+
+      def configure_grafana_datasource(host, prometheus_url)
+        datasource = <<~YAML
+          apiVersion: 1
+          datasources:
+            - name: Prometheus
+              type: prometheus
+              access: proxy
+              url: #{prometheus_url}
+              isDefault: true
+        YAML
+
+        ssh_executor.execute_on_host(host) do
+          execute :sudo, 'mkdir', '-p', '/etc/grafana/provisioning/datasources'
+          upload! StringIO.new(datasource), '/tmp/active_postgres_grafana_ds.yml'
+          execute :sudo, 'mv', '/tmp/active_postgres_grafana_ds.yml', '/etc/grafana/provisioning/datasources/active_postgres.yml'
+          execute :sudo, 'chown', 'root:root', '/etc/grafana/provisioning/datasources/active_postgres.yml'
+          execute :sudo, 'chmod', '644', '/etc/grafana/provisioning/datasources/active_postgres.yml'
+          execute :sudo, 'systemctl', 'restart', 'grafana-server'
+        end
+      end
+
+      def normalize_grafana_password(raw_password)
+        password = raw_password.to_s.rstrip
+
+        raise Error, 'grafana_admin_password secret is missing (required for grafana)' if password.empty?
 
         password
       end

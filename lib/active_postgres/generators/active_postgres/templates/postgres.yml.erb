@@ -59,6 +59,15 @@ shared: &shared
     monitoring:
       enabled: false
       # user: postgres_exporter
+      # node_exporter: true
+      # node_exporter_port: 9100
+      # node_exporter_listen_address: 10.8.0.10
+      # grafana:
+      #   enabled: true
+      #   host: grafana.example.com
+      #   listen_address: 10.8.0.10
+      #   port: 3000
+      #   prometheus_url: http://prometheus.example.com:9090
     
     ssl:
       enabled: false
@@ -98,5 +107,6 @@ production:
     replication_password: rails_credentials:postgres.replication_password
     repmgr_password: rails_credentials:postgres.repmgr_password
     monitoring_password: rails_credentials:postgres.monitoring_password
+    # grafana_admin_password: rails_credentials:postgres.grafana_admin_password
     pgbouncer_password: rails_credentials:postgres.password
     app_password: rails_credentials:postgres.password

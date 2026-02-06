@@ -5,7 +5,8 @@ module ActivePostgres
         puts 'Installing PgBouncer for connection pooling...'
 
         config.all_hosts.each do |host|
-          install_on_host(host)
+          is_standby = config.standby_hosts.include?(host)
+          install_on_host(host, is_standby: is_standby)
         end
       end
 
@@ -49,16 +50,26 @@ module ActivePostgres
 
       def install_on_standby(standby_host)
         puts "Installing PgBouncer on standby #{standby_host}..."
-        install_on_host(standby_host)
+        install_on_host(standby_host, is_standby: true)
       end
 
       private
 
-      def install_on_host(host)
+      def install_on_host(host, is_standby: false)
         puts "  Installing PgBouncer on #{host}..."
 
         user_config = config.component_config(:pgbouncer)
-        follow_primary = user_config[:follow_primary] == true
+
+        # Determine follow_primary behavior:
+        # - Primary: use global follow_primary setting
+        # - Standby: check per-standby pgbouncer_follow_primary, default false (use localhost for read replicas)
+        if is_standby
+          standby_config = config.standby_config_for(host) || {}
+          follow_primary = standby_config['pgbouncer_follow_primary'] == true
+        else
+          follow_primary = user_config[:follow_primary] == true
+        end
+
         if follow_primary && !config.component_enabled?(:repmgr)
           raise Error, 'PgBouncer follow_primary requires repmgr to be enabled'
         end
@@ -67,7 +78,8 @@ module ActivePostgres
         optimal_pool = ConnectionPooler.calculate_optimal_pool_sizes(max_connections)
 
         pgbouncer_config = optimal_pool.merge(user_config)
-        pgbouncer_config[:database_host] = config.primary_replication_host if follow_primary
+        # For standbys not following primary, use localhost; otherwise use primary host
+        pgbouncer_config[:database_host] = follow_primary ? config.primary_replication_host : '127.0.0.1'
         ssl_enabled = config.component_enabled?(:ssl)
         has_ca_cert = ssl_enabled && secrets.resolve('ssl_chain')
         secrets_obj = secrets

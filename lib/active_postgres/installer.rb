@@ -91,6 +91,15 @@ module ActivePostgres
       puts '✓ Restore complete'
     end
 
+    def run_restore_at(target_time, target_action: 'promote')
+      puts "==> Restoring to #{target_time} (PITR)..."
+
+      component = Components::PgBackRest.new(config, ssh_executor, secrets)
+      component.run_restore_at(target_time, target_action: target_action)
+
+      puts '✓ Restore complete'
+    end
+
     def list_backups
       component = Components::PgBackRest.new(config, ssh_executor, secrets)
       component.list_backups

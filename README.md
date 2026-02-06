@@ -69,6 +69,8 @@ postgres:
 ```bash
 rake postgres:setup   # Deploy cluster
 rake postgres:status  # Check health
+rake postgres:overview  # Control tower overview
+rake postgres:help    # Task summary
 ```
 
 ## Common Operations
@@ -83,8 +85,10 @@ rake postgres:promote[host]            # Promote standby to primary
 
 # Backups (requires pgBackRest)
 rake postgres:backup:full
+rake postgres:backup:incremental
 rake postgres:backup:list
 rake postgres:backup:restore[backup_id]
+rake postgres:backup:restore_at["2026-01-29 01:15:00",promote]
 
 # Credential rotation (zero downtime)
 rake postgres:credentials:rotate_random
@@ -101,6 +105,7 @@ rake postgres:update:patch             # Security patches
 active_postgres setup --environment=production
 active_postgres setup-standby HOST
 active_postgres status
+active_postgres overview
 active_postgres promote HOST
 active_postgres backup --type=full
 active_postgres cache-secrets
@@ -115,20 +120,36 @@ active_postgres cache-secrets
 | **repmgr** | HA & automatic failover | `repmgr: {enabled: true}` |
 | **PgBouncer** | Connection pooling | `pgbouncer: {enabled: true}` |
 | **pgBackRest** | Backup & restore | `pgbackrest: {enabled: true}` |
-| **Monitoring** | postgres_exporter (configures a dedicated pg_monitor user) | `monitoring: {enabled: true}` |
+| **Monitoring** | postgres_exporter + optional node_exporter/Grafana | `monitoring: {enabled: true}` |
 | **SSL** | Encrypted connections | `ssl: {enabled: true}` |
 | **Extensions** | pgvector, PostGIS, etc. | `extensions: {enabled: true, list: [pgvector]}` |
 
 ### Monitoring credentials
 
-`postgres_exporter` uses a dedicated `pg_monitor` user. Provide a password in secrets and optionally set the username:
+`postgres_exporter` uses a dedicated `pg_monitor` user. Provide a password in secrets and optionally set the username.
+Enable node_exporter for host-level metrics, and Grafana if you want a local UI:
 
 ```yaml
 components:
-  monitoring: {enabled: true, user: postgres_exporter}
+  monitoring:
+    enabled: true
+    user: postgres_exporter
+    node_exporter: true
+    node_exporter_port: 9100
+    # node_exporter_listen_address: 10.8.0.10
+    # grafana:
+    #   enabled: true
+    #   host: grafana.example.com
+    #   listen_address: 10.8.0.10
+    #   port: 3000
+    #   prometheus_url: http://prometheus.example.com:9090
 secrets:
   monitoring_password: $POSTGRES_MONITORING_PASSWORD
+  # grafana_admin_password: $GRAFANA_ADMIN_PASSWORD
 ```
+
+When Grafana is enabled, `grafana_admin_password` is required and Grafana will be installed
+on the configured host. If `prometheus_url` is provided, a Prometheus datasource is provisioned.
 
 ### pgBackRest S3-compatible endpoints
 
@@ -143,6 +164,35 @@ components:
     s3_region: auto
     s3_endpoint: t3.storage.dev
     s3_uri_style: path
+```
+
+### Point-in-time recovery (PITR)
+
+Ensure WAL retention is long enough for your recovery window:
+
+```yaml
+components:
+  pgbackrest:
+    retention_full: 7
+    retention_archive: 14
+    # You can schedule full + incremental separately:
+    # schedule_full: "0 2 * * *"
+    # schedule_incremental: "0 * * * *"
+```
+
+Run a PITR restore:
+
+```bash
+rake postgres:backup:restore_at["2026-01-29 01:15:00",promote]
+```
+
+If you want the old primary to rejoin without a full re-clone after failover,
+enable pg_rewind support in repmgr:
+
+```yaml
+components:
+  repmgr:
+    use_rewind: true
 ```
 
 ### Stable app endpoint with PgBouncer
@@ -175,6 +225,8 @@ components:
       enabled: true
       provider: dnsmasq
       domain: mesh.internal
+      # Or use multiple domains during cutover:
+      # domains: [mesh.internal, mesh.v2.internal]
       dns_servers:
         - host: 18.170.173.14
           private_ip: 10.8.0.10
@@ -182,6 +234,9 @@ components:
           private_ip: 10.8.0.110
       primary_record: db-primary.mesh.internal
       replica_record: db-replica.mesh.internal
+      # Or multiple records explicitly:
+      # primary_records: [db-primary.mesh.internal, db-primary.mesh.v2.internal]
+      # replica_records: [db-replica.mesh.internal, db-replica.mesh.v2.internal]
 ```
 
 This installs an event hook so repmgr updates `/etc/dnsmasq.d/active_postgres.conf`

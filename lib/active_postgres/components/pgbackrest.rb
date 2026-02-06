@@ -20,6 +20,7 @@ module ActivePostgres
           ssh_executor.execute_on_host(host) do
             execute :sudo, 'apt-get', 'remove', '-y', 'pgbackrest'
             execute :sudo, 'rm', '-f', '/etc/cron.d/pgbackrest-backup'
+            execute :sudo, 'rm', '-f', '/etc/cron.d/pgbackrest-backup-incremental'
           end
         end
       end
@@ -37,9 +38,12 @@ module ActivePostgres
         puts "Running #{type} backup..."
         postgres_user = config.postgres_user
 
+        output = nil
         ssh_executor.execute_on_host(config.primary_host) do
-          execute :sudo, '-u', postgres_user, 'pgbackrest', '--stanza=main', "--type=#{type}", 'backup'
+          output = capture(:sudo, '-u', postgres_user, 'pgbackrest', '--stanza=main', "--type=#{type}", 'backup')
         end
+
+        puts output if output
       end
 
       def run_restore(backup_id)
@@ -51,9 +55,29 @@ module ActivePostgres
           execute :sudo, 'systemctl', 'stop', 'postgresql'
 
           # Restore
-          execute :sudo, '-u', postgres_user, 'pgbackrest', '--stanza=main', "--set=#{backup_id}", 'restore'
+          output = capture(:sudo, '-u', postgres_user, 'pgbackrest', '--stanza=main', "--set=#{backup_id}", 'restore')
+          puts output if output
 
           # Start PostgreSQL
+          execute :sudo, 'systemctl', 'start', 'postgresql'
+        end
+      end
+
+      def run_restore_at(target_time, target_action: 'promote')
+        puts "Restoring to #{target_time} (PITR)..."
+        postgres_user = config.postgres_user
+
+        ssh_executor.execute_on_host(config.primary_host) do
+          execute :sudo, 'systemctl', 'stop', 'postgresql'
+
+          output = capture(:sudo, '-u', postgres_user, 'pgbackrest',
+                           '--stanza=main',
+                           '--type=time',
+                           "--target=#{target_time}",
+                           "--target-action=#{target_action}",
+                           'restore')
+          puts output if output
+
           execute :sudo, 'systemctl', 'start', 'postgresql'
         end
       end
@@ -62,9 +86,12 @@ module ActivePostgres
         puts 'Available backups:'
         postgres_user = config.postgres_user
 
+        output = nil
         ssh_executor.execute_on_host(config.primary_host) do
-          execute :sudo, '-u', postgres_user, 'pgbackrest', 'info'
+          output = capture(:sudo, '-u', postgres_user, 'pgbackrest', 'info')
         end
+
+        puts output if output
       end
 
       private
@@ -108,13 +135,35 @@ module ActivePostgres
         end
 
         # Set up scheduled backups on primary only
-        if create_stanza && pgbackrest_config[:schedule]
-          setup_backup_schedule(host, pgbackrest_config[:schedule])
+        if create_stanza
+          setup_backup_schedules(host, pgbackrest_config)
         end
       end
 
-      def setup_backup_schedule(host, schedule)
-        puts "  Setting up backup schedule: #{schedule}"
+      def setup_backup_schedules(host, pgbackrest_config)
+        schedules = backup_schedules(pgbackrest_config)
+        schedules.each do |entry|
+          setup_backup_schedule(host, entry[:schedule], entry[:type], entry[:file])
+        end
+      end
+
+      def backup_schedules(pgbackrest_config)
+        schedule_full = pgbackrest_config[:schedule_full] || pgbackrest_config[:schedule]
+        schedule_incremental = pgbackrest_config[:schedule_incremental]
+
+        schedules = []
+        if schedule_full
+          schedules << { type: 'full', schedule: schedule_full, file: '/etc/cron.d/pgbackrest-backup' }
+        end
+        if schedule_incremental
+          schedules << { type: 'incremental', schedule: schedule_incremental, file: '/etc/cron.d/pgbackrest-backup-incremental' }
+        end
+
+        schedules
+      end
+
+      def setup_backup_schedule(host, schedule, backup_type = 'full', cron_file = '/etc/cron.d/pgbackrest-backup')
+        puts "  Setting up #{backup_type} backup schedule: #{schedule}"
         postgres_user = config.postgres_user
 
         # Create cron job for scheduled backups
@@ -123,17 +172,18 @@ module ActivePostgres
           # pgBackRest scheduled backups (managed by active_postgres)
           SHELL=/bin/bash
           PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
-          #{schedule} #{postgres_user} pgbackrest --stanza=main --type=full backup
+          #{schedule} #{postgres_user} pgbackrest --stanza=main --type=#{backup_type} backup
         CRON
 
         # Install cron job in /etc/cron.d (system cron directory)
         # Use a temp file + sudo mv to avoid shell redirection permission issues.
-        ssh_executor.upload_file(host, cron_content, '/etc/cron.d/pgbackrest-backup', mode: '644', owner: 'root:root')
+        ssh_executor.upload_file(host, cron_content, cron_file, mode: '644', owner: 'root:root')
       end
 
       def remove_backup_schedule(host)
         ssh_executor.execute_on_host(host) do
           execute :sudo, 'rm', '-f', '/etc/cron.d/pgbackrest-backup'
+          execute :sudo, 'rm', '-f', '/etc/cron.d/pgbackrest-backup-incremental'
         end
       end
     end

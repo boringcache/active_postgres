@@ -27,6 +27,45 @@ class PgBackRestTest < Minitest::Test
     assert_includes cron_line, '30 3 * * 0 pgadmin'
   end
 
+  def test_backup_schedules_prefers_schedule_full
+    config = stub_config(primary_host: 'primary.example.com')
+    secrets = ActivePostgres::Secrets.new(config)
+    component = ActivePostgres::Components::PgBackRest.new(config, Object.new, secrets)
+
+    schedules = component.send(:backup_schedules, {
+      schedule: '0 2 * * *',
+      schedule_full: '0 3 * * *',
+      schedule_incremental: '0 * * * *'
+    })
+
+    full = schedules.find { |entry| entry[:type] == 'full' }
+    incremental = schedules.find { |entry| entry[:type] == 'incremental' }
+
+    assert_equal '0 3 * * *', full[:schedule]
+    assert_equal '0 * * * *', incremental[:schedule]
+  end
+
+  def test_setup_backup_schedule_uses_backup_type
+    schedule = '0 * * * *'
+    postgres_user = 'pguser'
+    config = stub_config(primary_host: 'primary.example.com', postgres_user: postgres_user)
+    secrets = ActivePostgres::Secrets.new(config)
+    ssh_executor = Minitest::Mock.new
+    component = ActivePostgres::Components::PgBackRest.new(config, ssh_executor, secrets)
+
+    ssh_executor.expect(:upload_file, nil) do |_host, content, path, **_kwargs|
+      assert_equal '/etc/cron.d/pgbackrest-backup-incremental', path
+      assert_includes content, "--type=incremental"
+      assert_includes content, schedule
+      true
+    end
+
+    component.send(:setup_backup_schedule, 'primary.example.com', schedule, 'incremental',
+                   '/etc/cron.d/pgbackrest-backup-incremental')
+
+    ssh_executor.verify
+  end
+
   def test_pgbackrest_config_s3_template_variables
     pgbackrest_config = {
       repo_type: 's3',

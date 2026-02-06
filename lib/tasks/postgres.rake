@@ -150,6 +150,15 @@ namespace :postgres do
     health_checker.show_status
   end
 
+  desc 'Show control tower overview'
+  task overview: :environment do
+    require 'active_postgres'
+
+    config = ActivePostgres::Configuration.load
+    overview = ActivePostgres::Overview.new(config)
+    overview.show
+  end
+
   desc 'Visualize cluster nodes and topology'
   task nodes: :environment do
     require 'active_postgres'
@@ -270,6 +279,50 @@ namespace :postgres do
     puts "\n#{'=' * 80}\n"
   end
 
+  desc 'Show help for PostgreSQL rake tasks'
+  task help: :environment do
+    puts "\nPostgreSQL Rake Tasks"
+    puts '=' * 70
+    puts "\nTip: set RAILS_ENV=production for production targets"
+
+    puts "\nSetup & Maintenance"
+    puts "  rake postgres:setup                  # Deploy HA cluster (CLEAN=true for fresh install)"
+    puts "  rake postgres:purge                  # Destroy cluster (DESTRUCTIVE)"
+    puts "  rake postgres:setup:core             # PostgreSQL config (postgresql.conf, pg_hba.conf)"
+    puts "  rake postgres:setup:repmgr           # HA + failover (repmgr)"
+    puts "  rake postgres:setup:pgbouncer        # PgBouncer pooling"
+    puts "  rake postgres:setup:pgbackrest       # Backups (pgBackRest)"
+    puts "  rake postgres:setup:monitoring       # postgres_exporter"
+    puts "  rake postgres:setup:ssl              # SSL certs"
+
+    puts "\nStatus & Health"
+    puts "  rake postgres:status                 # Cluster status (SSH by default)"
+    puts "  rake postgres:overview               # Control tower overview"
+    puts "  rake postgres:nodes                  # Topology view"
+    puts "  rake postgres:verify                 # Comprehensive checklist"
+    puts "  ACTIVE_POSTGRES_STATUS_MODE=ssh|direct rake postgres:status"
+
+    puts "\nBackups"
+    puts "  rake postgres:backup:full            # Full backup"
+    puts "  rake postgres:backup:incremental     # Incremental backup"
+    puts "  rake postgres:backup:list            # List backups"
+    puts "  rake postgres:backup:restore[ID]     # Restore backup set"
+    puts "  rake postgres:backup:restore_at[\"YYYY-MM-DD HH:MM:SS\",promote]  # PITR"
+
+    puts "\nMigrations"
+    puts "  rake postgres:migrate                # Run migrations on primary only"
+
+    puts "\nPgBouncer"
+    puts "  rake postgres:pgbouncer:update_userlist[users]  # Update userlist"
+    puts "  rake postgres:pgbouncer:stats        # Service status + stats"
+
+    puts "\nTests"
+    puts "  rake postgres:test:replication[rows] # Replication stress test"
+    puts "  rake postgres:test:pgbouncer[connections]  # PgBouncer load test"
+
+    puts
+  end
+
   desc 'Promote standby to primary'
   task :promote, [:host] => :environment do |_t, args|
     require 'active_postgres'
@@ -323,6 +376,20 @@ namespace :postgres do
       config = ActivePostgres::Configuration.load
       installer = ActivePostgres::Installer.new(config)
       installer.run_restore(args[:backup_id])
+    end
+
+    desc 'Restore to a point in time (PITR)'
+    task :restore_at, [:target_time, :target_action] => :environment do |_t, args|
+      require 'active_postgres'
+
+      unless args[:target_time]
+        puts 'Usage: rake postgres:backup:restore_at["2026-01-29 01:15:00",promote]'
+        exit 1
+      end
+
+      config = ActivePostgres::Configuration.load
+      installer = ActivePostgres::Installer.new(config)
+      installer.run_restore_at(args[:target_time], target_action: args[:target_action] || 'promote')
     end
 
     desc 'List available backups'

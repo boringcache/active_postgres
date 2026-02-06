@@ -72,6 +72,14 @@ module TestHelpers
       standbys.find { |s| s['host'] == host }
     end
 
+    def node_label_for(host)
+      if host == primary_host
+        primary['label']
+      else
+        standby_config_for(host)&.dig('label')
+      end
+    end
+
     private
 
     def evaluate_override(override, arg)
@@ -104,4 +112,34 @@ module TestHelpers
   end
 end
 
+module TemplateTestHelpers
+  def pgbouncer_component(config = nil, secrets = nil)
+    config ||= stub_config
+    secrets ||= ActivePostgres::Secrets.new(config)
+    ActivePostgres::Components::PgBouncer.new(config, Object.new, secrets)
+  end
+
+  def repmgr_component(config = nil, secrets = nil)
+    config ||= stub_config
+    secrets ||= ActivePostgres::Secrets.new(config)
+    ActivePostgres::Components::Repmgr.new(config, Object.new, secrets)
+  end
+
+  def pgbackrest_component(config = nil, secrets = nil)
+    config ||= stub_config
+    secrets ||= ActivePostgres::Secrets.new(config)
+    ActivePostgres::Components::PgBackRest.new(config, Object.new, secrets)
+  end
+
+  def render_template(component, template_name, locals = {})
+    component.instance_eval do
+      locals.each { |k, v| instance_variable_set("@#{k}", v) }
+      b = binding
+      locals.each { |k, v| b.local_variable_set(k, v) }
+      render_template(template_name, b)
+    end
+  end
+end
+
 Minitest::Test.include(TestHelpers)
+Minitest::Test.include(TemplateTestHelpers)

@@ -116,7 +116,7 @@ class PgBouncerTest < Minitest::Test
 
     assert_includes content, 'repmgr -f "$REPMGR_CONF" cluster show --csv'
     assert_includes content, 'PGBOUNCER_INI="/etc/pgbouncer/pgbouncer.ini"'
-    assert_match(/sed -i -E "s\/\^\(\\\\\* = host=\)\[\^ \]\+\//, content)
+    assert_includes content, '/usr/bin/sed -i -E "s/^(\\\\* = host=)[^ ]+/\\\\1${primary_host}/"'
     assert_includes content, '${primary_host}'
   end
 
@@ -132,5 +132,430 @@ class PgBouncerTest < Minitest::Test
     end
 
     assert_includes content, 'OnUnitActiveSec=5s'
+  end
+
+  def test_standby_defaults_to_localhost_when_pgbouncer_follow_primary_not_set
+    config = stub_config(
+      primary_host: 'primary.example.com',
+      standby_hosts: ['standby.example.com'],
+      primary: { 'host' => 'primary.example.com', 'private_ip' => '10.0.0.10' },
+      standbys: [
+        { 'host' => 'standby.example.com', 'private_ip' => '10.0.0.11' }
+      ],
+      component_config: {
+        pgbouncer: { follow_primary: true },
+        repmgr: { enabled: true },
+        ssl: { enabled: false },
+        core: { postgresql: { max_connections: 100 } }
+      },
+      component_enabled?: ->(name) { %i[pgbouncer repmgr].include?(name) }
+    )
+
+    secrets = Minitest::Mock.new
+    secrets.expect(:resolve, nil, ['ssl_chain'])
+
+    ssh_executor = Minitest::Mock.new
+    2.times { ssh_executor.expect(:execute_on_host, nil) { |_host| true } }
+
+    pgbouncer = ActivePostgres::Components::PgBouncer.new(config, ssh_executor, secrets)
+
+    def pgbouncer.upload_template(host, template, dest, binding_obj, **opts)
+      @captured_config ||= {}
+      @captured_config[host] = eval('pgbouncer_config', binding_obj)
+    end
+    def pgbouncer.get_postgres_max_connections(*) = 100
+    def pgbouncer.create_userlist(*); end
+    def pgbouncer.setup_ssl_certs(*); end
+    def pgbouncer.captured_config; @captured_config; end
+
+    pgbouncer.send(:install_on_host, 'standby.example.com', is_standby: true)
+
+    captured_config = pgbouncer.captured_config['standby.example.com']
+    assert_equal '127.0.0.1', captured_config[:database_host]
+  end
+
+  def test_standby_with_pgbouncer_follow_primary_true_uses_primary_host
+    config = stub_config(
+      primary_host: 'primary.example.com',
+      standby_hosts: ['standby.example.com'],
+      primary: { 'host' => 'primary.example.com', 'private_ip' => '10.0.0.10' },
+      standbys: [
+        { 'host' => 'standby.example.com', 'private_ip' => '10.0.0.11', 'pgbouncer_follow_primary' => true }
+      ],
+      component_config: {
+        pgbouncer: {},
+        repmgr: { enabled: true },
+        ssl: { enabled: false },
+        core: { postgresql: { max_connections: 100 } }
+      },
+      component_enabled?: ->(name) { %i[pgbouncer repmgr].include?(name) }
+    )
+
+    secrets = Minitest::Mock.new
+    secrets.expect(:resolve, nil, ['ssl_chain'])
+
+    ssh_executor = Minitest::Mock.new
+    2.times { ssh_executor.expect(:execute_on_host, nil) { |_host| true } }
+
+    pgbouncer = ActivePostgres::Components::PgBouncer.new(config, ssh_executor, secrets)
+
+    def pgbouncer.upload_template(host, template, dest, binding_obj, **opts)
+      @captured_config ||= {}
+      @captured_config[host] = eval('pgbouncer_config', binding_obj)
+    end
+    def pgbouncer.get_postgres_max_connections(*) = 100
+    def pgbouncer.create_userlist(*); end
+    def pgbouncer.setup_ssl_certs(*); end
+    def pgbouncer.install_follow_primary(*); end
+    def pgbouncer.captured_config; @captured_config; end
+
+    pgbouncer.send(:install_on_host, 'standby.example.com', is_standby: true)
+
+    captured_config = pgbouncer.captured_config['standby.example.com']
+    assert_equal '10.0.0.10', captured_config[:database_host]
+  end
+
+  def test_standby_with_pgbouncer_follow_primary_false_uses_localhost
+    config = stub_config(
+      primary_host: 'primary.example.com',
+      standby_hosts: ['standby.example.com'],
+      primary: { 'host' => 'primary.example.com', 'private_ip' => '10.0.0.10' },
+      standbys: [
+        { 'host' => 'standby.example.com', 'private_ip' => '10.0.0.11', 'pgbouncer_follow_primary' => false }
+      ],
+      component_config: {
+        pgbouncer: { follow_primary: true },
+        repmgr: { enabled: true },
+        ssl: { enabled: false },
+        core: { postgresql: { max_connections: 100 } }
+      },
+      component_enabled?: ->(name) { %i[pgbouncer repmgr].include?(name) }
+    )
+
+    secrets = Minitest::Mock.new
+    secrets.expect(:resolve, nil, ['ssl_chain'])
+
+    ssh_executor = Minitest::Mock.new
+    2.times { ssh_executor.expect(:execute_on_host, nil) { |_host| true } }
+
+    pgbouncer = ActivePostgres::Components::PgBouncer.new(config, ssh_executor, secrets)
+
+    def pgbouncer.upload_template(host, template, dest, binding_obj, **opts)
+      @captured_config ||= {}
+      @captured_config[host] = eval('pgbouncer_config', binding_obj)
+    end
+    def pgbouncer.get_postgres_max_connections(*) = 100
+    def pgbouncer.create_userlist(*); end
+    def pgbouncer.setup_ssl_certs(*); end
+    def pgbouncer.captured_config; @captured_config; end
+
+    pgbouncer.send(:install_on_host, 'standby.example.com', is_standby: true)
+
+    captured_config = pgbouncer.captured_config['standby.example.com']
+    assert_equal '127.0.0.1', captured_config[:database_host]
+  end
+
+  def test_primary_uses_global_follow_primary_setting
+    config = stub_config(
+      primary_host: 'primary.example.com',
+      standby_hosts: [],
+      primary: { 'host' => 'primary.example.com', 'private_ip' => '10.0.0.10' },
+      standbys: [],
+      component_config: {
+        pgbouncer: { follow_primary: true },
+        repmgr: { enabled: true },
+        ssl: { enabled: false },
+        core: { postgresql: { max_connections: 100 } }
+      },
+      component_enabled?: ->(name) { %i[pgbouncer repmgr].include?(name) }
+    )
+
+    secrets = Minitest::Mock.new
+    secrets.expect(:resolve, nil, ['ssl_chain'])
+
+    ssh_executor = Minitest::Mock.new
+    2.times { ssh_executor.expect(:execute_on_host, nil) { |_host| true } }
+
+    pgbouncer = ActivePostgres::Components::PgBouncer.new(config, ssh_executor, secrets)
+
+    def pgbouncer.upload_template(host, template, dest, binding_obj, **opts)
+      @captured_config ||= {}
+      @captured_config[host] = eval('pgbouncer_config', binding_obj)
+    end
+    def pgbouncer.get_postgres_max_connections(*) = 100
+    def pgbouncer.create_userlist(*); end
+    def pgbouncer.setup_ssl_certs(*); end
+    def pgbouncer.install_follow_primary(*); end
+    def pgbouncer.captured_config; @captured_config; end
+
+    pgbouncer.send(:install_on_host, 'primary.example.com', is_standby: false)
+
+    captured_config = pgbouncer.captured_config['primary.example.com']
+    assert_equal '10.0.0.10', captured_config[:database_host]
+  end
+
+  def test_primary_without_follow_primary_uses_localhost
+    config = stub_config(
+      primary_host: 'primary.example.com',
+      standby_hosts: [],
+      primary: { 'host' => 'primary.example.com', 'private_ip' => '10.0.0.10' },
+      standbys: [],
+      component_config: {
+        pgbouncer: { follow_primary: false },
+        repmgr: { enabled: true },
+        ssl: { enabled: false },
+        core: { postgresql: { max_connections: 100 } }
+      },
+      component_enabled?: ->(name) { %i[pgbouncer repmgr].include?(name) }
+    )
+
+    secrets = Minitest::Mock.new
+    secrets.expect(:resolve, nil, ['ssl_chain'])
+
+    ssh_executor = Minitest::Mock.new
+    2.times { ssh_executor.expect(:execute_on_host, nil) { |_host| true } }
+
+    pgbouncer = ActivePostgres::Components::PgBouncer.new(config, ssh_executor, secrets)
+
+    def pgbouncer.upload_template(host, template, dest, binding_obj, **opts)
+      @captured_config ||= {}
+      @captured_config[host] = eval('pgbouncer_config', binding_obj)
+    end
+    def pgbouncer.get_postgres_max_connections(*) = 100
+    def pgbouncer.create_userlist(*); end
+    def pgbouncer.setup_ssl_certs(*); end
+    def pgbouncer.captured_config; @captured_config; end
+
+    pgbouncer.send(:install_on_host, 'primary.example.com', is_standby: false)
+
+    captured_config = pgbouncer.captured_config['primary.example.com']
+    assert_equal '127.0.0.1', captured_config[:database_host]
+  end
+
+  def test_mixed_standby_configuration
+    config = stub_config(
+      primary_host: 'primary.example.com',
+      standby_hosts: ['replica-london.example.com', 'standby-virginia.example.com'],
+      primary: { 'host' => 'primary.example.com', 'private_ip' => '10.0.0.10' },
+      standbys: [
+        { 'host' => 'replica-london.example.com', 'private_ip' => '10.0.0.11' },
+        { 'host' => 'standby-virginia.example.com', 'private_ip' => '10.0.0.12', 'pgbouncer_follow_primary' => true }
+      ],
+      component_config: {
+        pgbouncer: { follow_primary: true },
+        repmgr: { enabled: true },
+        ssl: { enabled: false },
+        core: { postgresql: { max_connections: 100 } }
+      },
+      component_enabled?: ->(name) { %i[pgbouncer repmgr].include?(name) }
+    )
+
+    secrets = Minitest::Mock.new
+    3.times { secrets.expect(:resolve, nil, ['ssl_chain']) }
+
+    ssh_executor = Minitest::Mock.new
+    6.times { ssh_executor.expect(:execute_on_host, nil) { |_host| true } }
+
+    pgbouncer = ActivePostgres::Components::PgBouncer.new(config, ssh_executor, secrets)
+
+    def pgbouncer.upload_template(host, template, dest, binding_obj, **opts)
+      @captured_config ||= {}
+      @captured_config[host] = eval('pgbouncer_config', binding_obj)
+    end
+    def pgbouncer.get_postgres_max_connections(*) = 100
+    def pgbouncer.create_userlist(*); end
+    def pgbouncer.setup_ssl_certs(*); end
+    def pgbouncer.install_follow_primary(*); end
+    def pgbouncer.captured_config; @captured_config; end
+
+    pgbouncer.send(:install_on_host, 'primary.example.com', is_standby: false)
+    pgbouncer.send(:install_on_host, 'replica-london.example.com', is_standby: true)
+    pgbouncer.send(:install_on_host, 'standby-virginia.example.com', is_standby: true)
+
+    captured = pgbouncer.captured_config
+
+    assert_equal '10.0.0.10', captured['primary.example.com'][:database_host]
+    assert_equal '127.0.0.1', captured['replica-london.example.com'][:database_host]
+    assert_equal '10.0.0.10', captured['standby-virginia.example.com'][:database_host]
+  end
+
+  def test_install_correctly_identifies_standbys
+    config = stub_config(
+      primary_host: 'primary.example.com',
+      standby_hosts: ['standby.example.com'],
+      primary: { 'host' => 'primary.example.com', 'private_ip' => '10.0.0.10' },
+      standbys: [
+        { 'host' => 'standby.example.com', 'private_ip' => '10.0.0.11' }
+      ],
+      component_config: {
+        pgbouncer: {},
+        ssl: { enabled: false },
+        core: { postgresql: { max_connections: 100 } }
+      }
+    )
+
+    secrets = Minitest::Mock.new
+    2.times { secrets.expect(:resolve, nil, ['ssl_chain']) }
+
+    ssh_executor = Minitest::Mock.new
+    2.times { ssh_executor.expect(:execute_on_host, nil) { |_host| true } }
+
+    pgbouncer = ActivePostgres::Components::PgBouncer.new(config, ssh_executor, secrets)
+
+    installed_hosts = []
+    pgbouncer.define_singleton_method(:install_on_host) do |host, is_standby:|
+      installed_hosts << { host: host, is_standby: is_standby }
+    end
+
+    pgbouncer.install
+
+    primary_install = installed_hosts.find { |h| h[:host] == 'primary.example.com' }
+    standby_install = installed_hosts.find { |h| h[:host] == 'standby.example.com' }
+
+    refute primary_install[:is_standby]
+    assert standby_install[:is_standby]
+  end
+
+  def test_install_on_standby_sets_is_standby_true
+    config = stub_config(
+      primary_host: 'primary.example.com',
+      standby_hosts: ['standby.example.com'],
+      primary: { 'host' => 'primary.example.com', 'private_ip' => '10.0.0.10' },
+      standbys: [
+        { 'host' => 'standby.example.com', 'private_ip' => '10.0.0.11' }
+      ],
+      component_config: {
+        pgbouncer: {},
+        ssl: { enabled: false },
+        core: { postgresql: { max_connections: 100 } }
+      }
+    )
+
+    secrets = Minitest::Mock.new
+    secrets.expect(:resolve, nil, ['ssl_chain'])
+
+    ssh_executor = Object.new
+
+    pgbouncer = ActivePostgres::Components::PgBouncer.new(config, ssh_executor, secrets)
+
+    captured_is_standby = nil
+    pgbouncer.define_singleton_method(:install_on_host) do |host, is_standby:|
+      captured_is_standby = is_standby
+    end
+
+    pgbouncer.install_on_standby('standby.example.com')
+
+    assert captured_is_standby
+  end
+
+  def test_pgbouncer_follow_primary_requires_repmgr_on_standby
+    config = stub_config(
+      primary_host: 'primary.example.com',
+      standby_hosts: ['standby.example.com'],
+      primary: { 'host' => 'primary.example.com', 'private_ip' => '10.0.0.10' },
+      standbys: [
+        { 'host' => 'standby.example.com', 'private_ip' => '10.0.0.11', 'pgbouncer_follow_primary' => true }
+      ],
+      component_config: {
+        pgbouncer: {},
+        repmgr: { enabled: false },
+        ssl: { enabled: false },
+        core: { postgresql: { max_connections: 100 } }
+      },
+      component_enabled?: ->(name) { name == :pgbouncer }
+    )
+
+    secrets = Minitest::Mock.new
+    ssh_executor = Object.new
+
+    pgbouncer = ActivePostgres::Components::PgBouncer.new(config, ssh_executor, secrets)
+
+    def pgbouncer.get_postgres_max_connections(*) = 100
+
+    error = assert_raises(ActivePostgres::Error) do
+      pgbouncer.send(:install_on_host, 'standby.example.com', is_standby: true)
+    end
+
+    assert_match(/follow_primary requires repmgr/i, error.message)
+  end
+
+  def test_standby_config_not_found_defaults_to_localhost
+    config = stub_config(
+      primary_host: 'primary.example.com',
+      standby_hosts: ['unknown-standby.example.com'],
+      primary: { 'host' => 'primary.example.com', 'private_ip' => '10.0.0.10' },
+      standbys: [],
+      component_config: {
+        pgbouncer: { follow_primary: true },
+        repmgr: { enabled: true },
+        ssl: { enabled: false },
+        core: { postgresql: { max_connections: 100 } }
+      },
+      component_enabled?: ->(name) { %i[pgbouncer repmgr].include?(name) }
+    )
+
+    secrets = Minitest::Mock.new
+    secrets.expect(:resolve, nil, ['ssl_chain'])
+
+    ssh_executor = Minitest::Mock.new
+    2.times { ssh_executor.expect(:execute_on_host, nil) { |_host| true } }
+
+    pgbouncer = ActivePostgres::Components::PgBouncer.new(config, ssh_executor, secrets)
+
+    def pgbouncer.upload_template(host, template, dest, binding_obj, **opts)
+      @captured_config ||= {}
+      @captured_config[host] = eval('pgbouncer_config', binding_obj)
+    end
+    def pgbouncer.get_postgres_max_connections(*) = 100
+    def pgbouncer.create_userlist(*); end
+    def pgbouncer.setup_ssl_certs(*); end
+    def pgbouncer.captured_config; @captured_config; end
+
+    pgbouncer.send(:install_on_host, 'unknown-standby.example.com', is_standby: true)
+
+    captured_config = pgbouncer.captured_config['unknown-standby.example.com']
+    assert_equal '127.0.0.1', captured_config[:database_host]
+  end
+
+  def test_global_follow_primary_ignored_for_standbys
+    config = stub_config(
+      primary_host: 'primary.example.com',
+      standby_hosts: ['standby.example.com'],
+      primary: { 'host' => 'primary.example.com', 'private_ip' => '10.0.0.10' },
+      standbys: [
+        { 'host' => 'standby.example.com', 'private_ip' => '10.0.0.11' }
+      ],
+      component_config: {
+        pgbouncer: { follow_primary: true },
+        repmgr: { enabled: true },
+        ssl: { enabled: false },
+        core: { postgresql: { max_connections: 100 } }
+      },
+      component_enabled?: ->(name) { %i[pgbouncer repmgr].include?(name) }
+    )
+
+    secrets = Minitest::Mock.new
+    2.times { secrets.expect(:resolve, nil, ['ssl_chain']) }
+
+    ssh_executor = Minitest::Mock.new
+    4.times { ssh_executor.expect(:execute_on_host, nil) { |_host| true } }
+
+    pgbouncer = ActivePostgres::Components::PgBouncer.new(config, ssh_executor, secrets)
+
+    def pgbouncer.upload_template(host, template, dest, binding_obj, **opts)
+      @captured_config ||= {}
+      @captured_config[host] = eval('pgbouncer_config', binding_obj)
+    end
+    def pgbouncer.get_postgres_max_connections(*) = 100
+    def pgbouncer.create_userlist(*); end
+    def pgbouncer.setup_ssl_certs(*); end
+    def pgbouncer.install_follow_primary(*); end
+    def pgbouncer.captured_config; @captured_config; end
+
+    pgbouncer.send(:install_on_host, 'primary.example.com', is_standby: false)
+    pgbouncer.send(:install_on_host, 'standby.example.com', is_standby: true)
+
+    assert_equal '10.0.0.10', pgbouncer.captured_config['primary.example.com'][:database_host]
+    assert_equal '127.0.0.1', pgbouncer.captured_config['standby.example.com'][:database_host]
   end
 end

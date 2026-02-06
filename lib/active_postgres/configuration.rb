@@ -96,15 +96,32 @@ module ActivePostgres
       # Validate required secrets if components are enabled
       raise Error, 'Missing replication_password secret' if component_enabled?(:repmgr) && !secrets_config['replication_password']
       raise Error, 'Missing monitoring_password secret' if component_enabled?(:monitoring) && !secrets_config['monitoring_password']
+      if component_enabled?(:monitoring)
+        grafana_config = component_config(:monitoring)[:grafana] || {}
+        if grafana_config[:enabled] && !secrets_config['grafana_admin_password']
+          raise Error, 'Missing grafana_admin_password secret'
+        end
+        if grafana_config[:enabled] && grafana_config[:host].to_s.strip.empty?
+          raise Error, 'monitoring.grafana.host is required when grafana is enabled'
+        end
+      end
+      if component_enabled?(:pgbackrest)
+        pg_config = component_config(:pgbackrest)
+        retention_full = pg_config[:retention_full]
+        retention_archive = pg_config[:retention_archive]
+        if retention_full && retention_archive && retention_archive.to_i < retention_full.to_i
+          raise Error, 'pgbackrest.retention_archive must be >= retention_full for PITR safety'
+        end
+      end
 
         if component_enabled?(:repmgr)
           dns_failover = component_config(:repmgr)[:dns_failover]
           if dns_failover && dns_failover[:enabled]
-            domain = dns_failover[:domain].to_s.strip
+            domains = Array(dns_failover[:domains] || dns_failover[:domain]).map(&:to_s).map(&:strip).reject(&:empty?)
             servers = Array(dns_failover[:dns_servers])
             provider = (dns_failover[:provider] || 'dnsmasq').to_s.strip
 
-            raise Error, 'dns_failover.domain is required when enabled' if domain.empty?
+            raise Error, 'dns_failover.domain or dns_failover.domains is required when enabled' if domains.empty?
             raise Error, 'dns_failover.dns_servers is required when enabled' if servers.empty?
             raise Error, "Unsupported dns_failover provider '#{provider}'" unless provider == 'dnsmasq'
 

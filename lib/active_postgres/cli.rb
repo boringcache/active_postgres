@@ -49,6 +49,13 @@ module ActivePostgres
       health_checker.show_status
     end
 
+    desc 'overview', 'Show control tower overview'
+    def overview
+      config = load_config
+      overview = Overview.new(config)
+      overview.show
+    end
+
     desc 'health', 'Run health checks'
     def health
       config = load_config
