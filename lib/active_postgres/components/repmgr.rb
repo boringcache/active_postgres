@@ -85,6 +85,22 @@ module ActivePostgres
             execute :sudo, 'DEBIAN_FRONTEND=noninteractive', 'apt-get', 'install', '-y', '-qq',
                     "postgresql-#{version}-repmgr"
           end
+          install_postgres_sudoers(host)
+        end
+      end
+
+      def install_postgres_sudoers(host)
+        version = config.version
+        sudoers_line = "postgres ALL=(ALL) NOPASSWD: /usr/bin/systemctl start postgresql@#{version}-main, " \
+                       "/usr/bin/systemctl stop postgresql@#{version}-main, " \
+                       "/usr/bin/systemctl restart postgresql@#{version}-main, " \
+                       "/usr/bin/systemctl reload postgresql@#{version}-main, " \
+                       "/usr/bin/systemctl status postgresql@#{version}-main"
+        ssh_executor.execute_on_host(host) do
+          upload! StringIO.new("#{sudoers_line}\n"), '/tmp/postgres-repmgr-sudoers'
+          execute :sudo, 'cp', '/tmp/postgres-repmgr-sudoers', '/etc/sudoers.d/postgres-repmgr'
+          execute :sudo, 'chmod', '440', '/etc/sudoers.d/postgres-repmgr'
+          execute :rm, '-f', '/tmp/postgres-repmgr-sudoers'
         end
       end
 
@@ -247,6 +263,7 @@ module ActivePostgres
         effective_replication_password = replication_user == repmgr_user ? repmgr_password : replication_password
 
         ensure_primary_registered
+        ensure_primary_replication_ready(repmgr_password, effective_replication_password)
 
         setup_pgpass_file(standby_host, repmgr_password, replication_password: effective_replication_password,
                                                       primary_ip: primary_replication_host)
@@ -399,7 +416,40 @@ module ActivePostgres
         end
 
         register_standby_with_primary(standby_host)
+        setup_inter_node_ssh
         enable_repmgrd_if_configured(standby_host, repmgr_config)
+      end
+
+      def setup_inter_node_ssh
+        dns_config = dns_failover_config
+        key_path = dns_config && dns_config[:ssh_key_path] || '/var/lib/postgresql/.ssh/active_postgres_dns'
+        postgres_user = config.postgres_user
+        all_hosts = config.all_hosts
+        pub_keys = {}
+
+        all_hosts.each do |host|
+          ssh_executor.execute_on_host(host) do
+            pub_keys[host] = capture(:sudo, '-u', postgres_user, 'cat', "#{key_path}.pub").strip
+          end
+        end
+
+        all_hosts.each do |host|
+          ssh_executor.execute_on_host(host) do
+            other_keys = pub_keys.reject { |h, _| h == host }.values
+            other_keys.each do |key|
+              next if key.to_s.empty?
+
+              upload! StringIO.new("#{key}\n"), '/tmp/pg_peer_key.pub'
+              execute :sudo, '-u', postgres_user, 'bash', '-c',
+                      "grep -qxF -f /tmp/pg_peer_key.pub /var/lib/postgresql/.ssh/authorized_keys 2>/dev/null || cat /tmp/pg_peer_key.pub >> /var/lib/postgresql/.ssh/authorized_keys"
+              execute :rm, '-f', '/tmp/pg_peer_key.pub'
+            end
+
+            peer_ips = all_hosts.reject { |h| h == host }.map { |h| config.replication_host_for(h) }
+            scan_cmd = "ssh-keyscan #{peer_ips.join(' ')} >> /var/lib/postgresql/.ssh/known_hosts 2>/dev/null || true"
+            execute :sudo, '-u', postgres_user, 'bash', '-c', scan_cmd
+          end
+        end
       end
 
       def setup_dns_failover
@@ -423,6 +473,8 @@ module ActivePostgres
         dns_ssh_hosts.each do |dns_server|
           authorize_dns_keys(dns_server, dns_user, pub_keys.values.compact)
         end
+
+        setup_inter_node_ssh
 
         config.all_hosts.each do |host|
           install_dns_failover_script(host, dns_config, dns_private_ips, dns_user, dns_ssh_key_path, ssh_strict_host_key)
@@ -876,6 +928,33 @@ module ActivePostgres
         is_registered
       end
 
+      def ensure_primary_replication_ready(repmgr_password, effective_replication_password)
+        host = config.primary_host
+        repmgr_user = config.repmgr_user
+        repmgr_db = config.repmgr_database
+        replication_user = config.replication_user
+        repmgr_component = self
+        executor = ssh_executor
+
+        puts '  Ensuring repmgr user has correct password and privileges on primary...'
+
+        ssh_executor.execute_on_host(host) do
+          repmgr_sql = repmgr_component.send(:build_repmgr_setup_sql, repmgr_user, repmgr_db, repmgr_password)
+          executor.run_sql_on_backend(self, repmgr_sql, postgres_user: 'postgres', port: 5432, tuples_only: false,
+                                           capture: false)
+
+          if replication_user != repmgr_user
+            repl_sql = repmgr_component.send(:build_replication_user_sql, replication_user, effective_replication_password)
+            executor.run_sql_on_backend(self, repl_sql, postgres_user: 'postgres', port: 5432, tuples_only: false,
+                                             capture: false)
+          end
+
+          info '✓ Primary replication user is ready'
+        end
+
+        setup_pgpass_file(host, repmgr_password, replication_password: effective_replication_password)
+      end
+
       def regenerate_ssl_certs(host, version)
         ssl_config = config.component_config(:ssl)
         ssl_cert = secrets.resolve('ssl_cert')
@@ -1011,9 +1090,9 @@ module ActivePostgres
           'DO $$',
           'BEGIN',
           "  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '#{repmgr_user}') THEN",
-          "    CREATE USER #{repmgr_user} WITH SUPERUSER PASSWORD '#{escaped_password}';",
+          "    CREATE USER #{repmgr_user} WITH SUPERUSER REPLICATION PASSWORD '#{escaped_password}';",
           '  ELSE',
-          "    ALTER USER #{repmgr_user} WITH SUPERUSER PASSWORD '#{escaped_password}';",
+          "    ALTER USER #{repmgr_user} WITH SUPERUSER REPLICATION PASSWORD '#{escaped_password}';",
           '  END IF;',
           'END $$;',
           '',

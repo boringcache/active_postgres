@@ -30,6 +30,13 @@ follow_command='repmgr standby follow -f /etc/repmgr.conf --upstream-node-id=%n'
 
 reconnect_attempts=<%= repmgr_config[:reconnect_attempts] || 6 %>
 reconnect_interval=<%= repmgr_config[:reconnect_interval] || 10 %>
+
+service_start_command='sudo systemctl start postgresql@<%= config.version %>-main'
+service_stop_command='sudo systemctl stop postgresql@<%= config.version %>-main'
+service_restart_command='sudo systemctl restart postgresql@<%= config.version %>-main'
+service_reload_command='sudo systemctl reload postgresql@<%= config.version %>-main'
+
+ssh_options='-i /var/lib/postgresql/.ssh/active_postgres_dns -o StrictHostKeyChecking=no'
 <% if repmgr_config.key?(:use_rewind) %>
 use_rewind=<%= repmgr_config[:use_rewind] ? 'yes' : 'no' %>
 <% end %>

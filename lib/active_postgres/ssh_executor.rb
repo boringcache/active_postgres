@@ -1,6 +1,7 @@
 require 'sshkit'
 require 'sshkit/dsl'
 require 'securerandom'
+require 'stringio'
 
 module ActivePostgres
   class SSHExecutor

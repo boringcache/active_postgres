@@ -49,6 +49,11 @@ module ActivePostgres
         create_app_user_and_database(config.primary_host)
       end
 
+      def install_packages_only(host)
+        puts "  Installing packages on #{host} (cluster will be created by repmgr)..."
+        ssh_executor.install_postgres(host, config.version)
+      end
+
       private
 
       def install_on_host(host, is_primary:)
@@ -94,11 +99,6 @@ module ActivePostgres
         # Merge: user config overrides calculated settings
         user_postgresql = component_config[:postgresql] || {}
         optimal_settings.merge(user_postgresql)
-      end
-
-      def install_packages_only(host)
-        puts "  Installing packages on #{host} (cluster will be created by repmgr)..."
-        ssh_executor.install_postgres(host, config.version)
       end
 
       def cluster_exists?(host)

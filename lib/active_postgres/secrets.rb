@@ -81,11 +81,29 @@ module ActivePostgres
     end
 
     def fetch_from_rails_credentials(key_path)
+      ensure_rails_credentials_available
+
       return nil unless defined?(::Rails) && ::Rails.respond_to?(:application) && ::Rails.application
 
       keys = key_path.split('.').map(&:to_sym)
       ::Rails.application.credentials.dig(*keys)
     rescue StandardError
+      nil
+    end
+
+    def ensure_rails_credentials_available
+      return if @rails_boot_attempted
+      return if defined?(::Rails) && ::Rails.respond_to?(:application) && ::Rails.application
+
+      @rails_boot_attempted = true
+
+      # Try loading just the Rails application (without full initialization)
+      # This makes Rails.application available for credential access
+      if File.exist?('./config/application.rb')
+        require './config/application'
+      end
+    rescue StandardError
+      # Rails boot failed — CLI running outside a Rails project
       nil
     end
 

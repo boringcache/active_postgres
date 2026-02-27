@@ -99,6 +99,21 @@ class RepmgrTemplatesTest < Minitest::Test
     refute_includes content, 'use_rewind'
   end
 
+  def test_conf_includes_service_commands
+    content = render_conf({}, host: 'primary.example.com')
+
+    assert_includes content, "service_start_command='sudo systemctl start postgresql@16-main'"
+    assert_includes content, "service_stop_command='sudo systemctl stop postgresql@16-main'"
+    assert_includes content, "service_restart_command='sudo systemctl restart postgresql@16-main'"
+    assert_includes content, "service_reload_command='sudo systemctl reload postgresql@16-main'"
+  end
+
+  def test_conf_includes_ssh_options
+    content = render_conf({}, host: 'primary.example.com')
+
+    assert_includes content, "ssh_options='-i /var/lib/postgresql/.ssh/active_postgres_dns -o StrictHostKeyChecking=no'"
+  end
+
   def test_conf_includes_dns_failover_event_hook
     content = render_conf({ dns_failover: { enabled: true } }, host: 'primary.example.com')
 
@@ -224,13 +239,14 @@ class RepmgrTemplatesTest < Minitest::Test
     assert_includes content, 'cat > ${DNSMASQ_FILE}'
   end
 
-  def test_dns_script_reloads_dnsmasq
+  def test_dns_script_restarts_dnsmasq
     content = render_dns_script(
       primary_records: ['db.mesh'],
       replica_records: ['db-replica.mesh']
     )
 
-    assert_includes content, 'sudo systemctl reload dnsmasq || sudo systemctl restart dnsmasq'
+    assert_includes content, 'sudo systemctl restart dnsmasq'
+    refute_includes content, 'systemctl reload dnsmasq'
   end
 
   def test_dns_script_logs_updates
@@ -249,8 +265,8 @@ class RepmgrTemplatesTest < Minitest::Test
       replica_records: ['db-replica.mesh']
     )
 
-    assert_includes content, 'repmgr -f "$REPMGR_CONF" cluster show --csv'
-    assert_includes content, "tolower($3) ~ /primary/"
+    assert_includes content, 'SELECT type, conninfo FROM repmgr.nodes WHERE active = true'
+    assert_includes content, '$1 == "primary"'
   end
 
   def test_dns_script_extracts_standbys_from_repmgr
@@ -259,7 +275,7 @@ class RepmgrTemplatesTest < Minitest::Test
       replica_records: ['db-replica.mesh']
     )
 
-    assert_includes content, "tolower($3) ~ /standby/"
+    assert_includes content, '$1 == "standby"'
     assert_includes content, 'sort -u'
   end
 

@@ -12,13 +12,17 @@ SSH_STRICT_HOST_KEY="<%= ssh_strict_host_key %>"
 SSH_KNOWN_HOSTS="/var/lib/postgresql/.ssh/known_hosts"
 LOG_TAG="active_postgres_dns"
 
-cluster_csv=$(repmgr -f "$REPMGR_CONF" cluster show --csv 2>/dev/null || true)
-if [[ -z "$cluster_csv" ]]; then
+REPMGR_DB=$(grep -oP "dbname=\K[^ ']+" "$REPMGR_CONF" | head -1)
+REPMGR_USER=$(grep -oP "user=\K[^ ']+" "$REPMGR_CONF" 2>/dev/null | head -1)
+REPMGR_USER="${REPMGR_USER:-repmgr}"
+
+cluster_data=$(sudo -u postgres psql -h /var/run/postgresql -d "$REPMGR_DB" -tAF',' -c "SELECT type, conninfo FROM repmgr.nodes WHERE active = true" 2>/dev/null || true)
+if [[ -z "$cluster_data" ]]; then
   exit 0
 fi
 
-primary_host=$(printf "%s\n" "$cluster_csv" | awk -F',' 'NR>1 && tolower($3) ~ /primary/ {print $NF; exit}' | sed -n 's/.*host=\\([^ ]*\\).*/\\1/p')
-standby_hosts=$(printf "%s\n" "$cluster_csv" | awk -F',' 'NR>1 && tolower($3) ~ /standby/ {print $NF}' | sed -n 's/.*host=\\([^ ]*\\).*/\\1/p' | sort -u)
+primary_host=$(printf "%s\n" "$cluster_data" | awk -F',' '$1 == "primary" {print $2; exit}' | sed -n 's/.*host=\([^ ]*\).*/\1/p')
+standby_hosts=$(printf "%s\n" "$cluster_data" | awk -F',' '$1 == "standby" {print $2}' | sed -n 's/.*host=\([^ ]*\).*/\1/p' | sort -u)
 
 if [[ -z "$primary_host" ]]; then
   exit 0
@@ -51,7 +55,7 @@ for server in "${DNS_SERVERS[@]}"; do
   fi
 
   if ! /usr/bin/ssh "${ssh_opts[@]}" "${DNS_USER}@${server}" \
-    "sudo bash -c 'cat > ${DNSMASQ_FILE} << \"EOF\"\\n${content}EOF\\n' && (sudo systemctl reload dnsmasq || sudo systemctl restart dnsmasq)"; then
+    "sudo bash -c 'cat > ${DNSMASQ_FILE} << \"EOF\"\\n${content}EOF\\n' && sudo systemctl restart dnsmasq"; then
     /usr/bin/logger -t "$LOG_TAG" "Failed updating dnsmasq on ${server}"
   fi
 done
