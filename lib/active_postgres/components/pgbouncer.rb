@@ -99,6 +99,8 @@ module ActivePostgres
 
         create_userlist(host)
 
+        ensure_firewall_port_open(host, pgbouncer_config[:listen_port] || 6432)
+
         ssh_executor.execute_on_host(host) do
           execute :sudo, 'systemctl', 'enable', 'pgbouncer'
           execute :sudo, 'systemctl', 'restart', 'pgbouncer'
@@ -191,6 +193,17 @@ module ActivePostgres
           puts "  ✓ Created userlist with #{userlist_entries.size} user(s)"
         else
           warn '  Warning: No users added to userlist - connections may fail'
+        end
+      end
+
+      def ensure_firewall_port_open(host, port)
+        ssh_executor.execute_on_host(host) do
+          has_reject = test(:sudo, 'iptables', '-C', 'INPUT', '-j', 'REJECT', '2>/dev/null')
+          if has_reject
+            execute :sudo, 'iptables', '-I', 'INPUT', '-p', 'tcp', '--dport', port.to_s, '-j', 'ACCEPT'
+            execute :sudo, 'sh', '-c', "'iptables-save > /etc/iptables/rules.v4 2>/dev/null || true'"
+            puts "  ✓ Opened port #{port} in iptables"
+          end
         end
       end
 
