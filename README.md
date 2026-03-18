@@ -187,12 +187,10 @@ rake postgres:backup:restore_at["2026-01-29 01:15:00",promote]
 ```
 
 If you want the old primary to rejoin without a full re-clone after failover,
-enable pg_rewind support in repmgr:
+use `repmgr node rejoin --force-rewind` once the node is ready to reattach:
 
-```yaml
-components:
-  repmgr:
-    use_rewind: true
+```bash
+repmgr node rejoin -f /etc/repmgr.conf --force-rewind
 ```
 
 ### Stable app endpoint with PgBouncer

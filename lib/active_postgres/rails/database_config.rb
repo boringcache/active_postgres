@@ -82,7 +82,7 @@ module ActivePostgres
           {
             'adapter' => 'postgresql',
             'encoding' => 'unicode',
-            'pool' => env_value('RAILS_MAX_THREADS', fallback: 5),
+            'pool' => pool_env_value,
             'username' => env_value('POSTGRES_APP_USER', fallback: app_name),
             'password' => env_value('POSTGRES_APP_PASSWORD'),
             'variables' => {
@@ -136,6 +136,10 @@ module ActivePostgres
           else
             "<%= ENV.fetch('#{name}') { #{fallback} } %>"
           end
+        end
+
+        def pool_env_value
+          "<%= ENV.fetch('DB_POOL') { ENV.fetch('RAILS_MAX_THREADS') { 5 } } %>"
         end
 
         def normalize_app_name(custom_name)

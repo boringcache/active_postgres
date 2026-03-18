@@ -16,6 +16,7 @@ class RailsDatabaseConfigTest < Minitest::Test
     result = ActivePostgres::Rails::DatabaseConfig.generate('production', app_name: 'demo_app', config: @config)
 
     assert_equal %w[primary primary_replica], result.keys
+    assert_equal "<%= ENV.fetch('DB_POOL') { ENV.fetch('RAILS_MAX_THREADS') { 5 } } %>", result['primary']['pool']
     assert_equal "<%= ENV.fetch('POSTGRES_PRIMARY_HOST') { '10.0.0.10' } %>", result['primary']['host']
     assert_equal "<%= ENV.fetch('POSTGRES_APPLICATION_NAME') { 'demo_app-primary' } %>", result['primary']['variables']['application_name']
     assert_equal true, result['primary_replica']['replica']

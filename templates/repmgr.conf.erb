@@ -37,9 +37,6 @@ service_restart_command='sudo systemctl restart postgresql@<%= config.version %>
 service_reload_command='sudo systemctl reload postgresql@<%= config.version %>-main'
 
 ssh_options='-i /var/lib/postgresql/.ssh/active_postgres_dns -o StrictHostKeyChecking=no'
-<% if repmgr_config.key?(:use_rewind) %>
-use_rewind=<%= repmgr_config[:use_rewind] ? 'yes' : 'no' %>
-<% end %>
 
 log_level=INFO
 log_facility=STDERR

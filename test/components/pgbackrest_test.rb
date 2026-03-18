@@ -45,6 +45,30 @@ class PgBackRestTest < Minitest::Test
     assert_equal '0 * * * *', incremental[:schedule]
   end
 
+  def test_setup_backup_schedules_rewrites_existing_cron_files_before_installing_new_ones
+    config = stub_config(primary_host: 'primary.example.com')
+    secrets = ActivePostgres::Secrets.new(config)
+    component = ActivePostgres::Components::PgBackRest.new(config, Object.new, secrets)
+    calls = []
+
+    component.define_singleton_method(:remove_backup_schedule) do |host|
+      calls << [:remove, host]
+    end
+
+    component.define_singleton_method(:setup_backup_schedule) do |host, schedule, backup_type, cron_file|
+      calls << [:schedule, host, schedule, backup_type, cron_file]
+    end
+
+    component.send(:setup_backup_schedules, 'primary.example.com', {
+      schedule_full: '0 2 * * *',
+      schedule_incremental: '0 * * * *'
+    })
+
+    assert_equal [:remove, 'primary.example.com'], calls.first
+    assert_equal [:schedule, 'primary.example.com', '0 2 * * *', 'full', '/etc/cron.d/pgbackrest-backup'], calls[1]
+    assert_equal [:schedule, 'primary.example.com', '0 * * * *', 'incremental', '/etc/cron.d/pgbackrest-backup-incremental'], calls[2]
+  end
+
   def test_setup_backup_schedule_uses_backup_type
     schedule = '0 * * * *'
     postgres_user = 'pguser'

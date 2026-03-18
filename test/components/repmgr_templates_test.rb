@@ -81,20 +81,8 @@ class RepmgrTemplatesTest < Minitest::Test
     assert_includes content, 'reconnect_interval=10'
   end
 
-  def test_conf_includes_use_rewind_when_enabled
+  def test_conf_omits_invalid_use_rewind_setting
     content = render_conf({ use_rewind: true }, host: 'primary.example.com')
-
-    assert_includes content, 'use_rewind=yes'
-  end
-
-  def test_conf_includes_use_rewind_no_when_false
-    content = render_conf({ use_rewind: false }, host: 'primary.example.com')
-
-    assert_includes content, 'use_rewind=no'
-  end
-
-  def test_conf_omits_use_rewind_when_not_set
-    content = render_conf({}, host: 'primary.example.com')
 
     refute_includes content, 'use_rewind'
   end

@@ -141,6 +141,7 @@ module ActivePostgres
       end
 
       def setup_backup_schedules(host, pgbackrest_config)
+        remove_backup_schedule(host)
         schedules = backup_schedules(pgbackrest_config)
         schedules.each do |entry|
           setup_backup_schedule(host, entry[:schedule], entry[:type], entry[:file])

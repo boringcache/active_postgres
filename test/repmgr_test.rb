@@ -207,20 +207,8 @@ class RepmgrTest < Minitest::Test
     assert_includes content, 'for host in $standby_hosts'
   end
 
-  def test_repmgr_conf_template_includes_use_rewind_when_enabled
+  def test_repmgr_conf_template_omits_invalid_use_rewind_setting
     content = render_repmgr_conf({ use_rewind: true })
-
-    assert_includes content, 'use_rewind=yes'
-  end
-
-  def test_repmgr_conf_template_includes_use_rewind_false
-    content = render_repmgr_conf({ use_rewind: false })
-
-    assert_includes content, 'use_rewind=no'
-  end
-
-  def test_repmgr_conf_template_omits_use_rewind_when_not_set
-    content = render_repmgr_conf({})
 
     refute_includes content, 'use_rewind'
   end

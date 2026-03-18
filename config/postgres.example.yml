@@ -106,8 +106,8 @@ shared: &shared
       reconnect_interval: 10
       # Optional: dedicated streaming replication user
       replication_user: replication
-      # Use pg_rewind to rejoin old primary after failover (requires data checksums or wal_log_hints=on)
-      # use_rewind: true
+      # To rejoin a failed primary with pg_rewind, run:
+      # repmgr node rejoin --force-rewind ...
       # Optional: update DNS on failover (dnsmasq)
       # dns_failover:
       #   enabled: true
