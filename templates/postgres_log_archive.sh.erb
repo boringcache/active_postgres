@@ -46,12 +46,43 @@ if [[ ${#tar_paths[@]} -eq 0 ]]; then
   exit 0
 fi
 
-tar -czf "$archive" -C / "${tar_paths[@]}"
+set +e
+tar --warning=no-file-changed --ignore-failed-read -czf "$archive" -C / "${tar_paths[@]}"
+tar_status=$?
+set -e
 
-destination="s3://${AWS_BUCKET}/${PREFIX%/}/${NODE}/${DATE_PATH}/$(basename "$archive")"
-aws_args=(s3 cp "$archive" "$destination" --only-show-errors)
-if [[ -n "${AWS_ENDPOINT_URL:-}" ]]; then
-  aws_args+=(--endpoint-url "$AWS_ENDPOINT_URL")
+if [[ $tar_status -gt 1 ]]; then
+  exit "$tar_status"
 fi
 
-aws "${aws_args[@]}"
+if [[ ! -s "$archive" ]]; then
+  exit 0
+fi
+
+destination="s3://${AWS_BUCKET}/${PREFIX%/}/${NODE}/${DATE_PATH}/$(basename "$archive")"
+if command -v aws >/dev/null 2>&1; then
+  aws_args=(s3 cp "$archive" "$destination" --only-show-errors)
+  if [[ -n "${AWS_ENDPOINT_URL:-}" ]]; then
+    aws_args+=(--endpoint-url "$AWS_ENDPOINT_URL")
+  fi
+
+  aws "${aws_args[@]}"
+elif command -v s3cmd >/dev/null 2>&1; then
+  s3cmd_args=(
+    --access_key="$AWS_ACCESS_KEY_ID"
+    --secret_key="$AWS_SECRET_ACCESS_KEY"
+    --region="${AWS_DEFAULT_REGION:-us-east-1}"
+    --no-progress
+  )
+
+  if [[ -n "${AWS_ENDPOINT_URL:-}" ]]; then
+    endpoint="${AWS_ENDPOINT_URL#https://}"
+    endpoint="${endpoint#http://}"
+    s3cmd_args+=(--host="$endpoint" --host-bucket="${endpoint}/%(bucket)")
+  fi
+
+  s3cmd "${s3cmd_args[@]}" put "$archive" "$destination"
+else
+  echo "missing aws or s3cmd command for PostgreSQL log archive" >&2
+  exit 1
+fi

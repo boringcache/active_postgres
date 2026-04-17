@@ -56,6 +56,29 @@ module TestHelpers
       [primary_host] + (standby_hosts || [])
     end
 
+    def pgbouncer_app_hosts
+      hosts = component_config(:pgbouncer)[:app_hosts] || []
+      hosts = [hosts] unless hosts.is_a?(Array)
+
+      hosts.map do |entry|
+        case entry
+        when String
+          { 'host' => entry }
+        else
+          entry
+        end
+      end
+    end
+
+    def pgbouncer_primary_record
+      pgbouncer = component_config(:pgbouncer)
+      explicit = pgbouncer[:primary_record]
+      return explicit if explicit
+
+      dns_failover = component_config(:repmgr)[:dns_failover] || {}
+      dns_failover[:primary_record] || primary_replication_host
+    end
+
     def primary_replication_host
       replication_host_for(primary_host)
     end

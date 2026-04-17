@@ -57,6 +57,8 @@ log-path=/var/log/pgbackrest
 
 # Process settings
 process-max=<%= pgbackrest_config[:process_max] || 2 %>
+archive-async=y
+spool-path=/var/spool/pgbackrest
 
 # Start/Stop (for consistent backups)
 start-fast=y
@@ -67,5 +69,4 @@ pg1-path=/var/lib/postgresql/<%= config.version %>/main
 pg1-port=5432
 pg1-socket-path=/var/run/postgresql
 pg1-user=<%= config.postgres_user %>
-
 

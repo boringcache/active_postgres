@@ -8,12 +8,16 @@ module ActivePostgres
           is_standby = config.standby_hosts.include?(host)
           install_on_host(host, is_standby: is_standby)
         end
+
+        pgbouncer_app_hosts.each do |app_host|
+          install_on_app_host(app_host)
+        end
       end
 
       def uninstall
         puts 'Uninstalling PgBouncer...'
 
-        config.all_hosts.each do |host|
+        (config.all_hosts + pgbouncer_app_hosts.map { |app_host| app_host.fetch('host') }).each do |host|
           ssh_executor.execute_on_host(host) do
             execute :sudo, 'systemctl', 'disable', '--now', 'pgbouncer-follow-primary.timer', '||', 'true'
             execute :sudo, 'rm', '-f', '/usr/local/bin/pgbouncer-follow-primary',
@@ -29,7 +33,7 @@ module ActivePostgres
       def restart
         puts 'Restarting PgBouncer...'
 
-        config.all_hosts.each do |host|
+        (config.all_hosts + pgbouncer_app_hosts.map { |app_host| app_host.fetch('host') }).each do |host|
           ssh_executor.execute_on_host(host) do
             execute :sudo, 'systemctl', 'restart', 'pgbouncer'
           end
@@ -46,6 +50,15 @@ module ActivePostgres
             execute :sudo, 'systemctl', 'reload', 'pgbouncer'
           end
         end
+
+        pgbouncer_app_hosts.each do |app_host|
+          host = app_host.fetch('host')
+          create_userlist_from_primary(host)
+
+          ssh_executor.execute_on_host(host) do
+            execute :sudo, 'systemctl', 'reload', 'pgbouncer'
+          end
+        end
       end
 
       def install_on_standby(standby_host)
@@ -54,6 +67,12 @@ module ActivePostgres
       end
 
       private
+
+      def pgbouncer_app_hosts
+        return config.pgbouncer_app_hosts if config.respond_to?(:pgbouncer_app_hosts)
+
+        []
+      end
 
       def install_on_host(host, is_standby: false)
         puts "  Installing PgBouncer on #{host}..."
@@ -106,6 +125,45 @@ module ActivePostgres
         install_follow_primary(host, pgbouncer_config) if follow_primary
       end
 
+      def install_on_app_host(app_host)
+        host = app_host.fetch('host')
+        puts "  Installing PgBouncer on app host #{host}..."
+
+        user_config = config.component_config(:pgbouncer)
+        max_connections = get_postgres_max_connections(config.primary_host)
+        optimal_pool = ConnectionPooler.calculate_optimal_pool_sizes(max_connections)
+
+        pgbouncer_config = optimal_pool.merge(user_config)
+        pgbouncer_config[:database_host] = app_host_value(app_host, :database_host) || pgbouncer_primary_record
+        pgbouncer_config[:database_port] = app_host_value(app_host, :database_port) || pgbouncer_config[:database_port] || 5432
+        pgbouncer_config[:listen_addr] = app_host_value(app_host, :listen_addr) || pgbouncer_config[:app_listen_addr] || '127.0.0.1'
+        pgbouncer_config[:listen_port] = app_host_value(app_host, :listen_port) || pgbouncer_config[:app_listen_port] ||
+                                         pgbouncer_config[:listen_port] || 6432
+        ssl_enabled = config.component_enabled?(:ssl)
+        has_ca_cert = ssl_enabled && secrets.resolve('ssl_chain')
+        secrets_obj = secrets
+        _ = pgbouncer_config
+        _ = has_ca_cert
+        _ = secrets_obj
+
+        puts "  Calculated app pool settings for max_connections=#{max_connections}"
+
+        install_apt_packages(host, 'pgbouncer', 'postgresql-client')
+
+        upload_template(host, 'pgbouncer.ini.erb', '/etc/pgbouncer/pgbouncer.ini', binding, mode: '644')
+
+        setup_app_ssl_certs(host) if ssl_enabled
+
+        create_userlist_from_primary(host)
+
+        ssh_executor.execute_on_host(host) do
+          execute :sudo, 'systemctl', 'enable', 'pgbouncer'
+          execute :sudo, 'systemctl', 'restart', 'pgbouncer'
+        end
+
+        install_follow_dns_primary(host, pgbouncer_config)
+      end
+
       def follow_primary_for?(host, is_standby:, user_config:)
         if is_standby
           standby_config = config.standby_config_for(host) || {}
@@ -135,6 +193,32 @@ module ActivePostgres
         end
       end
 
+      def setup_app_ssl_certs(host)
+        puts '  Setting up SSL certificates for app PgBouncer...'
+
+        ssl_cert = secrets.resolve('ssl_cert')
+        ssl_key = secrets.resolve('ssl_key')
+        ssl_chain = secrets.resolve('ssl_chain')
+
+        unless ssl_cert && ssl_key
+          raise Error, 'PgBouncer app_hosts require ssl_cert and ssl_key secrets when ssl is enabled'
+        end
+
+        full_cert = if ssl_chain
+                      "#{ssl_cert.strip}\n#{ssl_chain.strip}\n"
+                    else
+                      ssl_cert
+                    end
+
+        ssh_executor.execute_on_host(host) do
+          execute :sudo, 'mkdir', '-p', '/etc/pgbouncer'
+        end
+
+        ssh_executor.upload_file(host, full_cert, '/etc/pgbouncer/server.crt', mode: '644', owner: 'postgres:postgres')
+        ssh_executor.upload_file(host, ssl_key, '/etc/pgbouncer/server.key', mode: '600', owner: 'postgres:postgres')
+        ssh_executor.upload_file(host, ssl_chain, '/etc/pgbouncer/ca.crt', mode: '644', owner: 'postgres:postgres') if ssl_chain
+      end
+
       def get_postgres_max_connections(host)
         # Try to get max_connections from running PostgreSQL
         postgres_user = config.postgres_user
@@ -154,16 +238,41 @@ module ActivePostgres
       def create_userlist(host)
         puts '  Creating PgBouncer userlist with database users...'
 
-        postgres_user = config.postgres_user
-        app_user = config.app_user
-        users_to_add = [postgres_user, (app_user if app_user != postgres_user)].compact
-        pgbouncer = self
+        component = self
 
         ssh_executor.execute_on_host(host) do
-          backend = self
-          userlist_entries = users_to_add.filter_map { |user| pgbouncer.send(:fetch_user_hash, backend, user, postgres_user) }
-          pgbouncer.send(:write_userlist_file, backend, userlist_entries)
+          userlist_entries = component.send(:userlist_entries_from_backend, self)
+          component.send(:write_userlist_file, self, userlist_entries)
         end
+      end
+
+      def create_userlist_from_primary(host)
+        puts '  Creating app PgBouncer userlist from primary database users...'
+
+        userlist_entries = nil
+        component = self
+
+        ssh_executor.execute_on_host(config.primary_host) do
+          userlist_entries = component.send(:userlist_entries_from_backend, self)
+        end
+
+        ssh_executor.execute_on_host(host) do
+          component.send(:write_userlist_file, self, userlist_entries || [])
+        end
+      end
+
+      def userlist_entries_from_backend(backend)
+        postgres_user = config.postgres_user
+        users_to_add = pgbouncer_database_users
+
+        users_to_add.filter_map { |user| fetch_user_hash(backend, user, postgres_user) }
+      end
+
+      def pgbouncer_database_users
+        postgres_user = config.postgres_user
+        app_user = config.app_user
+
+        [postgres_user, (app_user if app_user != postgres_user)].compact
       end
 
       def fetch_user_hash(backend, user, postgres_user)
@@ -240,6 +349,40 @@ module ActivePostgres
           execute :sudo, 'systemctl', 'enable', '--now', 'pgbouncer-follow-primary.timer'
           execute :sudo, 'systemctl', 'start', 'pgbouncer-follow-primary.service'
         end
+      end
+
+      def install_follow_dns_primary(host, pgbouncer_config)
+        interval = pgbouncer_config[:follow_primary_interval] || 5
+        interval = interval.to_i
+        interval = 5 if interval <= 0
+        primary_record = pgbouncer_config[:database_host]
+        _ = interval
+        _ = primary_record
+        _ = pgbouncer_config
+
+        upload_template(host, 'pgbouncer_follow_dns_primary.sh.erb', '/usr/local/bin/pgbouncer-follow-primary',
+                        binding, mode: '755', owner: 'root:root')
+        upload_template(host, 'pgbouncer-follow-primary.service.erb',
+                        '/etc/systemd/system/pgbouncer-follow-primary.service', binding, mode: '644', owner: 'root:root')
+        upload_template(host, 'pgbouncer-follow-primary.timer.erb',
+                        '/etc/systemd/system/pgbouncer-follow-primary.timer', binding, mode: '644', owner: 'root:root')
+
+        ssh_executor.execute_on_host(host) do
+          execute :sudo, 'systemctl', 'daemon-reload'
+          execute :sudo, 'systemctl', 'enable', '--now', 'pgbouncer-follow-primary.timer'
+          execute :sudo, 'systemctl', 'start', 'pgbouncer-follow-primary.service'
+        end
+      end
+
+      def pgbouncer_primary_record
+        return config.pgbouncer_primary_record if config.respond_to?(:pgbouncer_primary_record)
+
+        dns_failover = config.component_config(:repmgr)[:dns_failover] || {}
+        dns_failover[:primary_record] || config.primary_replication_host
+      end
+
+      def app_host_value(app_host, key)
+        app_host[key.to_s] || app_host[key]
       end
     end
   end

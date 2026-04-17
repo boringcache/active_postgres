@@ -201,6 +201,44 @@ class ConfigurationTest < Minitest::Test
     assert_equal false, standby['pgbouncer_follow_primary']
   end
 
+  def test_pgbouncer_app_hosts_accept_strings_and_hashes
+    config = build_config(
+      'components' => {
+        'pgbouncer' => {
+          'enabled' => true,
+          'app_hosts' => [
+            'app1.example.com',
+            { 'host' => 'app2.example.com', 'listen_addr' => '127.0.0.1' }
+          ]
+        }
+      }
+    )
+
+    assert_equal 'app1.example.com', config.pgbouncer_app_hosts.first['host']
+    assert_equal 'app2.example.com', config.pgbouncer_app_hosts.last['host']
+    assert config.validate!
+  end
+
+  def test_pgbouncer_primary_record_prefers_repmgr_dns_record
+    config = build_config(
+      'primary' => { 'host' => 'primary.example.com', 'private_ip' => '10.0.0.10' },
+      'components' => {
+        'repmgr' => {
+          'enabled' => true,
+          'dns_failover' => {
+            'enabled' => true,
+            'domain' => 'mesh.internal',
+            'dns_servers' => [{ 'host' => '10.0.0.50' }],
+            'primary_record' => 'db-primary.mesh.internal'
+          }
+        }
+      },
+      'secrets' => { 'replication_password' => 'secret' }
+    )
+
+    assert_equal 'db-primary.mesh.internal', config.pgbouncer_primary_record
+  end
+
   private
 
   def build_config(overrides)

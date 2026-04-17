@@ -91,6 +91,28 @@ class SecretsTest < Minitest::Test
     ENV.delete('DYNAMIC_SECRET')
   end
 
+  def test_rails_credentials_resolution_sets_rails_environment_from_config
+    old_rails_env = ENV['RAILS_ENV']
+    old_boring_environment = ENV['BORING_ENVIRONMENT']
+    ENV.delete('RAILS_ENV')
+    ENV.delete('BORING_ENVIRONMENT')
+
+    config = stub_config(
+      environment: 'production',
+      secrets_config: { 'db_password' => 'rails_credentials:postgres.password' }
+    )
+    secrets = ActivePostgres::Secrets.new(config)
+
+    assert_nil secrets.resolve('db_password')
+    assert_equal 'production', ENV['RAILS_ENV']
+    assert_equal 'production', ENV['BORING_ENVIRONMENT']
+  ensure
+    ENV['RAILS_ENV'] = old_rails_env if old_rails_env
+    ENV.delete('RAILS_ENV') unless old_rails_env
+    ENV['BORING_ENVIRONMENT'] = old_boring_environment if old_boring_environment
+    ENV.delete('BORING_ENVIRONMENT') unless old_boring_environment
+  end
+
   def test_resolve_value_nested_hash_and_array
     ENV['NESTED_SECRET'] = 'nested'
     config = stub_config(secrets_config: {})

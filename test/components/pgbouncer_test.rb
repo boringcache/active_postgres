@@ -123,6 +123,101 @@ class PgBouncerTest < Minitest::Test
     assert_includes content, 'OnUnitActiveSec=5s'
   end
 
+  def test_dns_follow_primary_script_restarts_pgbouncer_when_dns_target_changes
+    config = stub_config(component_config: { pgbouncer: {}, repmgr: {} })
+    secrets = ActivePostgres::Secrets.new(config)
+    component = ActivePostgres::Components::PgBouncer.new(config, Object.new, secrets)
+
+    content = component.instance_eval do
+      primary_record = 'db-primary.mesh.internal'
+      pgbouncer_config = { listen_port: 6432 }
+      _ = [primary_record, pgbouncer_config]
+      render_template('pgbouncer_follow_dns_primary.sh.erb', binding)
+    end
+
+    assert_includes content, 'getent ahostsv4 "$PRIMARY_RECORD"'
+    assert_includes content, 'STATE_FILE="${STATE_DIR}/pgbouncer-primary-ip"'
+    assert_includes content, '/usr/bin/systemctl restart "$PGBOUNCER_SERVICE"'
+    assert_includes content, 'Refreshed PgBouncer primary target'
+  end
+
+  def test_pgbouncer_template_uses_short_dns_ttl
+    config = stub_config(component_config: { pgbouncer: {}, repmgr: {} })
+    secrets = ActivePostgres::Secrets.new(config)
+    component = ActivePostgres::Components::PgBouncer.new(config, Object.new, secrets)
+
+    content = component.instance_eval do
+      pgbouncer_config = {}
+      ssl_enabled = false
+      has_ca_cert = false
+      _ = [pgbouncer_config, ssl_enabled, has_ca_cert]
+      render_template('pgbouncer.ini.erb', binding)
+    end
+
+    assert_includes content, 'dns_max_ttl = 5'
+    assert_includes content, 'dns_nxdomain_ttl = 15'
+  end
+
+  def test_install_includes_configured_app_hosts
+    config = stub_config(
+      primary_host: 'primary.example.com',
+      standby_hosts: ['standby.example.com'],
+      component_config: {
+        pgbouncer: { app_hosts: [{ 'host' => 'app.example.com' }] },
+        ssl: { enabled: false },
+        core: { postgresql: { max_connections: 100 } }
+      }
+    )
+
+    ssh_executor = noop_ssh_executor
+    pgbouncer = ActivePostgres::Components::PgBouncer.new(config, ssh_executor, ActivePostgres::Secrets.new(config))
+
+    installed_app_hosts = []
+    pgbouncer.define_singleton_method(:install_on_host) { |_host, is_standby:| }
+    pgbouncer.define_singleton_method(:install_on_app_host) do |app_host|
+      installed_app_hosts << app_host.fetch('host')
+    end
+
+    pgbouncer.install
+
+    assert_equal ['app.example.com'], installed_app_hosts
+  end
+
+  def test_app_host_uses_primary_dns_record_and_local_listen_address
+    config = stub_config(
+      primary_host: 'primary.example.com',
+      standby_hosts: ['standby.example.com'],
+      primary: { 'host' => 'primary.example.com', 'private_ip' => '10.0.0.10' },
+      component_config: {
+        pgbouncer: { app_hosts: [{ 'host' => 'app.example.com' }] },
+        repmgr: { dns_failover: { primary_record: 'db-primary.mesh.internal' } },
+        ssl: { enabled: false },
+        core: { postgresql: { max_connections: 100 } }
+      },
+      component_enabled?: ->(_name) { false }
+    )
+
+    ssh_executor = noop_ssh_executor
+    pgbouncer = ActivePostgres::Components::PgBouncer.new(config, ssh_executor, ActivePostgres::Secrets.new(config))
+
+    def pgbouncer.upload_template(host, template, _dest, binding_obj, **_opts)
+      @captured_config ||= {}
+      @captured_config[host] = eval('pgbouncer_config', binding_obj) if template == 'pgbouncer.ini.erb'
+    end
+    def pgbouncer.install_apt_packages(*); end
+    def pgbouncer.get_postgres_max_connections(*) = 100
+    def pgbouncer.create_userlist_from_primary(*); end
+    def pgbouncer.install_follow_dns_primary(*); end
+    def pgbouncer.captured_config; @captured_config; end
+
+    pgbouncer.send(:install_on_app_host, { 'host' => 'app.example.com' })
+
+    captured_config = pgbouncer.captured_config['app.example.com']
+    assert_equal 'db-primary.mesh.internal', captured_config[:database_host]
+    assert_equal '127.0.0.1', captured_config[:listen_addr]
+    assert_equal 6432, captured_config[:listen_port]
+  end
+
   def test_standby_uses_global_follow_primary_when_override_not_set
     config = stub_config(
       primary_host: 'primary.example.com',

@@ -212,7 +212,7 @@ module ActivePostgres
         env_content = log_archive_env(pgbackrest_config, log_archive_config, host)
         cron_content = log_archive_cron(log_archive_config)
 
-        install_apt_packages(host, 'awscli')
+        install_apt_packages(host, 's3cmd')
 
         ssh_executor.upload_file(host, env_content, LOG_ARCHIVE_ENV_FILE, mode: '640', owner: "root:#{postgres_user}")
 

@@ -39,6 +39,35 @@ module ActivePostgres
       [primary_host] + standby_hosts
     end
 
+    def pgbouncer_app_hosts
+      hosts = component_config(:pgbouncer)[:app_hosts] || component_config(:pgbouncer)['app_hosts'] || []
+      hosts = [hosts] unless hosts.is_a?(Array)
+
+      hosts.filter_map do |entry|
+        case entry
+        when String
+          entry.strip.empty? ? nil : { 'host' => entry.strip }
+        when Hash
+          host = entry['host'] || entry[:host] || entry['ip'] || entry[:ip]
+          next if host.to_s.strip.empty?
+
+          entry.merge('host' => host.to_s.strip)
+        end
+      end
+    end
+
+    def pgbouncer_primary_record
+      pgbouncer = component_config(:pgbouncer)
+      explicit = pgbouncer[:primary_record] || pgbouncer['primary_record']
+      return explicit.to_s.strip unless explicit.to_s.strip.empty?
+
+      dns_failover = component_config(:repmgr)[:dns_failover] || component_config(:repmgr)['dns_failover'] || {}
+      record = dns_failover[:primary_record] || dns_failover['primary_record']
+      return record.to_s.strip unless record.to_s.strip.empty?
+
+      primary_replication_host
+    end
+
     def primary_host
       @primary['host']
     end
@@ -111,6 +140,13 @@ module ActivePostgres
         retention_archive = pg_config[:retention_archive]
         if retention_full && retention_archive && retention_archive.to_i < retention_full.to_i
           raise Error, 'pgbackrest.retention_archive must be >= retention_full for PITR safety'
+        end
+      end
+
+      if component_enabled?(:pgbouncer)
+        pgbouncer_app_hosts.each do |app_host|
+          host = app_host['host'] || app_host[:host]
+          raise Error, 'pgbouncer.app_hosts entries must include host' if host.to_s.strip.empty?
         end
       end
 

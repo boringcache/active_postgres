@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PRIMARY_RECORD="<%= primary_record %>"
+PGBOUNCER_INI="/etc/pgbouncer/pgbouncer.ini"
+PGBOUNCER_SERVICE="pgbouncer"
+STATE_DIR="/var/lib/active-postgres"
+STATE_FILE="${STATE_DIR}/pgbouncer-primary-ip"
+LOG_TAG="pgbouncer-follow-primary"
+
+resolved_ip=$(getent ahostsv4 "$PRIMARY_RECORD" | awk '{print $1; exit}' || true)
+if [[ -z "$resolved_ip" ]]; then
+  /usr/bin/logger -t "$LOG_TAG" "Could not resolve ${PRIMARY_RECORD}"
+  exit 1
+fi
+
+current_host=$(awk -F'host=' '/^\\* = host=/{print $2}' "$PGBOUNCER_INI" | awk '{print $1}')
+previous_ip=""
+if [[ -f "$STATE_FILE" ]]; then
+  previous_ip=$(cat "$STATE_FILE")
+fi
+
+changed=0
+if [[ "$current_host" != "$PRIMARY_RECORD" ]]; then
+  /usr/bin/sed -i -E "s/^(\\* = host=)[^ ]+/\\1${PRIMARY_RECORD}/" "$PGBOUNCER_INI"
+  changed=1
+fi
+
+if [[ "$previous_ip" != "$resolved_ip" ]]; then
+  changed=1
+fi
+
+/usr/bin/install -d -m 0755 "$STATE_DIR"
+printf "%s\n" "$resolved_ip" > "$STATE_FILE"
+
+if [[ "$changed" == "1" ]]; then
+  /usr/bin/systemctl restart "$PGBOUNCER_SERVICE"
+  /usr/bin/logger -t "$LOG_TAG" "Refreshed PgBouncer primary target ${PRIMARY_RECORD} (${resolved_ip})"
+fi

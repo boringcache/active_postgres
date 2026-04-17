@@ -96,6 +96,8 @@ module ActivePostgres
       return if defined?(::Rails) && ::Rails.respond_to?(:application) && ::Rails.application
 
       @rails_boot_attempted = true
+      ENV['RAILS_ENV'] ||= config.environment
+      ENV['BORING_ENVIRONMENT'] ||= config.environment
 
       # Try loading just the Rails application (without full initialization)
       # This makes Rails.application available for credential access

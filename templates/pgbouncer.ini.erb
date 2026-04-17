@@ -36,6 +36,8 @@ client_idle_timeout = <%= pgbouncer_config[:client_idle_timeout] || 0 %>
 client_login_timeout = <%= pgbouncer_config[:client_login_timeout] || 60 %>
 query_timeout = <%= pgbouncer_config[:query_timeout] || 0 %>
 query_wait_timeout = <%= pgbouncer_config[:query_wait_timeout] || 120 %>
+dns_max_ttl = <%= pgbouncer_config[:dns_max_ttl] || 5 %>
+dns_nxdomain_ttl = <%= pgbouncer_config[:dns_nxdomain_ttl] || 15 %>
 
 # Logging and administration
 admin_users = <%= pgbouncer_config[:admin_users] || config.postgres_user %>
@@ -61,5 +63,4 @@ pidfile = <%= pgbouncer_config[:pidfile] %>
 <% if pgbouncer_config[:logfile] %>
 logfile = <%= pgbouncer_config[:logfile] %>
 <% end %>
-
 

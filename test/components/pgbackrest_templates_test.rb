@@ -100,6 +100,13 @@ class PgBackRestTemplatesTest < Minitest::Test
     assert_includes content, 'process-max=4'
   end
 
+  def test_conf_enables_async_archiving
+    content = render_conf(repo_type: 's3', s3_bucket: 'my-backups')
+
+    assert_includes content, 'archive-async=y'
+    assert_includes content, 'spool-path=/var/spool/pgbackrest'
+  end
+
   def test_conf_default_process_max
     content = render_conf(repo_type: 'local')
 
@@ -131,6 +138,18 @@ class PgBackRestTemplatesTest < Minitest::Test
     content = render_conf(repo_type: 's3', s3_bucket: 'my-backups')
 
     assert_includes content, 'repo1-path=/backups'
+  end
+
+  def test_log_archive_script_supports_packaged_s3cmd_fallback
+    content = @component.instance_eval do
+      render_template('postgres_log_archive.sh.erb', binding)
+    end
+
+    assert_includes content, 'command -v aws'
+    assert_includes content, 'command -v s3cmd'
+    assert_includes content, '--ignore-failed-read'
+    assert_includes content, '--host-bucket="${endpoint}/%(bucket)"'
+    assert_includes content, 'missing aws or s3cmd command'
   end
 
   private
