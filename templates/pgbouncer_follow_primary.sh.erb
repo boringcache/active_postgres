@@ -2,17 +2,19 @@
 set -euo pipefail
 
 REPMGR_CONF="<%= repmgr_conf %>"
+REPMGR_DB="<%= repmgr_database %>"
 PGBOUNCER_INI="/etc/pgbouncer/pgbouncer.ini"
 PGBOUNCER_SERVICE="pgbouncer"
 LOG_TAG="pgbouncer-follow-primary"
 
-cluster_csv=$(/usr/bin/sudo -u <%= postgres_user %> env HOME=/var/lib/postgresql \
-  repmgr -f "$REPMGR_CONF" cluster show --csv 2>/dev/null || true)
-if [[ -z "$cluster_csv" ]]; then
+cluster_nodes=$(/usr/bin/sudo -u <%= postgres_user %> env HOME=/var/lib/postgresql \
+  psql -h /var/run/postgresql -d "$REPMGR_DB" -tAF',' \
+  -c "SELECT type, conninfo FROM repmgr.nodes WHERE active = true" 2>/dev/null || true)
+if [[ -z "$cluster_nodes" ]]; then
   exit 0
 fi
 
-primary_conninfo=$(printf "%s\n" "$cluster_csv" | awk -F',' 'NR>1 && tolower($3) ~ /primary/ {print $NF; exit}')
+primary_conninfo=$(printf "%s\n" "$cluster_nodes" | awk -F',' '$1 == "primary" {print $2; exit}')
 if [[ -z "$primary_conninfo" ]]; then
   exit 0
 fi

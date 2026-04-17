@@ -106,8 +106,9 @@ class PgBouncerTemplatesTest < Minitest::Test
   def test_follow_script_uses_repmgr
     content = render_follow_script
 
-    assert_includes content, 'REPMGR_CONF="/etc/repmgr.conf"'
-    assert_includes content, 'repmgr -f "$REPMGR_CONF" cluster show --csv'
+    assert_includes content, 'REPMGR_DB="repmgr"'
+    assert_includes content, 'psql -h /var/run/postgresql -d "$REPMGR_DB" -tAF'
+    assert_includes content, 'SELECT type, conninfo FROM repmgr.nodes WHERE active = true'
   end
 
   def test_follow_script_uses_postgres_user
@@ -116,10 +117,10 @@ class PgBouncerTemplatesTest < Minitest::Test
     assert_includes content, 'sudo -u pgadmin'
   end
 
-  def test_follow_script_extracts_primary_from_csv
+  def test_follow_script_extracts_primary_from_repmgr_nodes
     content = render_follow_script
 
-    assert_includes content, "tolower($3) ~ /primary/"
+    assert_includes content, '$1 == "primary"'
   end
 
   def test_follow_script_updates_pgbouncer_ini
@@ -146,7 +147,7 @@ class PgBouncerTemplatesTest < Minitest::Test
   def test_follow_script_exits_early_on_empty_cluster
     content = render_follow_script
 
-    assert_includes content, 'if [[ -z "$cluster_csv" ]]; then'
+    assert_includes content, 'if [[ -z "$cluster_nodes" ]]; then'
     assert_includes content, 'exit 0'
   end
 
@@ -212,7 +213,8 @@ class PgBouncerTemplatesTest < Minitest::Test
   def render_follow_script(postgres_user: 'postgres')
     @component.instance_eval do
       repmgr_conf = '/etc/repmgr.conf'
-      _ = [repmgr_conf, postgres_user]
+      repmgr_database = 'repmgr'
+      _ = [repmgr_conf, repmgr_database, postgres_user]
       render_template('pgbouncer_follow_primary.sh.erb', binding)
     end
   end

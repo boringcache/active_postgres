@@ -1,6 +1,12 @@
+require 'shellwords'
+
 module ActivePostgres
   module Components
     class PgBackRest < Base
+      LOG_ARCHIVE_CRON_FILE = '/etc/cron.d/postgres-log-archive'
+      LOG_ARCHIVE_ENV_FILE = '/etc/active-postgres-log-archive.env'
+      LOG_ARCHIVE_SCRIPT = '/usr/local/bin/active-postgres-archive-logs'
+
       def install
         puts 'Installing pgBackRest for backups...'
 
@@ -21,6 +27,9 @@ module ActivePostgres
             execute :sudo, 'apt-get', 'remove', '-y', 'pgbackrest'
             execute :sudo, 'rm', '-f', '/etc/cron.d/pgbackrest-backup'
             execute :sudo, 'rm', '-f', '/etc/cron.d/pgbackrest-backup-incremental'
+            execute :sudo, 'rm', '-f', LOG_ARCHIVE_CRON_FILE
+            execute :sudo, 'rm', '-f', LOG_ARCHIVE_ENV_FILE
+            execute :sudo, 'rm', '-f', LOG_ARCHIVE_SCRIPT
           end
         end
       end
@@ -105,10 +114,7 @@ module ActivePostgres
         _ = pgbackrest_config # Used in ERB template
         _ = secrets_obj # Used in ERB template
 
-        # Install package
-        ssh_executor.execute_on_host(host) do
-          execute :sudo, 'apt-get', 'install', '-y', '-qq', 'pgbackrest'
-        end
+        install_apt_packages(host, 'pgbackrest')
 
         # Upload configuration
         upload_template(host, 'pgbackrest.conf.erb', '/etc/pgbackrest.conf', binding,
@@ -134,9 +140,17 @@ module ActivePostgres
           end
         end
 
+        if log_archive_enabled?(pgbackrest_config)
+          setup_log_archive(host, pgbackrest_config)
+        else
+          remove_log_archive(host)
+        end
+
         # Set up scheduled backups on primary only
         if create_stanza
           setup_backup_schedules(host, pgbackrest_config)
+        else
+          remove_backup_schedule(host)
         end
       end
 
@@ -186,6 +200,75 @@ module ActivePostgres
           execute :sudo, 'rm', '-f', '/etc/cron.d/pgbackrest-backup'
           execute :sudo, 'rm', '-f', '/etc/cron.d/pgbackrest-backup-incremental'
         end
+      end
+
+      def setup_log_archive(host, pgbackrest_config)
+        log_archive_config = pgbackrest_config[:log_archive] || {}
+        unless pgbackrest_config[:repo_type] == 's3'
+          raise Error, 'pgbackrest.log_archive requires pgbackrest.repo_type: s3'
+        end
+
+        postgres_user = config.postgres_user
+        env_content = log_archive_env(pgbackrest_config, log_archive_config, host)
+        cron_content = log_archive_cron(log_archive_config)
+
+        install_apt_packages(host, 'awscli')
+
+        ssh_executor.upload_file(host, env_content, LOG_ARCHIVE_ENV_FILE, mode: '640', owner: "root:#{postgres_user}")
+
+        upload_template(host, 'postgres_log_archive.sh.erb', LOG_ARCHIVE_SCRIPT, binding,
+                        mode: '750', owner: "root:#{postgres_user}")
+        ssh_executor.upload_file(host, cron_content, LOG_ARCHIVE_CRON_FILE, mode: '644', owner: 'root:root')
+      end
+
+      def remove_log_archive(host)
+        ssh_executor.execute_on_host(host) do
+          execute :sudo, 'rm', '-f', LOG_ARCHIVE_CRON_FILE
+          execute :sudo, 'rm', '-f', LOG_ARCHIVE_ENV_FILE
+          execute :sudo, 'rm', '-f', LOG_ARCHIVE_SCRIPT
+        end
+      end
+
+      def log_archive_enabled?(pgbackrest_config)
+        (pgbackrest_config[:log_archive] || {})[:enabled] == true
+      end
+
+      def log_archive_cron(log_archive_config)
+        schedule = log_archive_config[:schedule] || '17 3 * * *'
+        <<~CRON
+          # PostgreSQL text log archive (managed by active_postgres)
+          SHELL=/bin/bash
+          PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
+          #{schedule} root #{LOG_ARCHIVE_SCRIPT}
+        CRON
+      end
+
+      def log_archive_env(pgbackrest_config, log_archive_config, host)
+        access_key = secrets.resolve('s3_access_key')
+        secret_key = secrets.resolve('s3_secret_key')
+        raise Error, 's3_access_key secret is required for pgbackrest.log_archive' if access_key.to_s.empty?
+        raise Error, 's3_secret_key secret is required for pgbackrest.log_archive' if secret_key.to_s.empty?
+
+        env = {
+          'AWS_ACCESS_KEY_ID' => access_key,
+          'AWS_SECRET_ACCESS_KEY' => secret_key,
+          'AWS_DEFAULT_REGION' => pgbackrest_config[:s3_region] || 'us-east-1',
+          'AWS_BUCKET' => pgbackrest_config[:s3_bucket],
+          'AWS_ENDPOINT_URL' => s3_endpoint_url(pgbackrest_config),
+          'POSTGRES_LOG_ARCHIVE_LOG_DIR' => log_archive_config[:log_directory] || '/var/log/postgresql',
+          'POSTGRES_LOG_ARCHIVE_PREFIX' => log_archive_config[:prefix] || 'postgres-logs',
+          'POSTGRES_LOG_ARCHIVE_NODE' => config.node_label_for(host) || host
+        }.compact
+
+        env.map { |key, value| "#{key}=#{Shellwords.escape(value.to_s)}" }.join("\n") + "\n"
+      end
+
+      def s3_endpoint_url(pgbackrest_config)
+        endpoint = pgbackrest_config[:s3_endpoint]
+        return nil if endpoint.to_s.empty?
+        return endpoint if endpoint.match?(/\Ahttps?:\/\//)
+
+        "https://#{endpoint}"
       end
     end
   end

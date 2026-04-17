@@ -50,9 +50,10 @@ module ActivePostgres
                   '/etc/apt/sources.list.d/pgdg.list'
         end
 
-        execute :sudo, 'apt-get', 'update', '-qq'
-        execute :sudo, 'DEBIAN_FRONTEND=noninteractive', 'apt-get', 'install', '-y', '-qq', 'gnupg', 'wget',
-                'lsb-release', 'locales'
+        execute :sudo, 'apt-get', '-o', 'DPkg::Lock::Timeout=300', 'update', '-qq'
+        execute :sudo, 'DEBIAN_FRONTEND=noninteractive', 'apt-get',
+                '-o', 'DPkg::Lock::Timeout=300', 'install', '-y', '-qq',
+                'gnupg', 'wget', 'lsb-release', 'locales'
 
         info 'Generating locales...'
         execute :sudo, 'locale-gen', 'en_US.UTF-8'
@@ -73,8 +74,9 @@ module ActivePostgres
             execute :sudo, 'systemctl', 'stop', 'postgresql' if test('systemctl is-active postgresql')
 
             # Remove all PostgreSQL packages
-            execute :sudo, 'DEBIAN_FRONTEND=noninteractive', 'apt-get', 'remove', '--purge', '-y', '-qq', 'postgresql*'
-            execute :sudo, 'apt-get', 'autoremove', '-y', '-qq'
+            execute :sudo, 'DEBIAN_FRONTEND=noninteractive', 'apt-get',
+                    '-o', 'DPkg::Lock::Timeout=300', 'remove', '--purge', '-y', '-qq', 'postgresql*'
+            execute :sudo, 'apt-get', '-o', 'DPkg::Lock::Timeout=300', 'autoremove', '-y', '-qq'
 
             # Clean up OLD version directories only (preserve target version SSL certs, etc.)
             other_versions.each do |old_version|
@@ -103,9 +105,10 @@ module ActivePostgres
                     "/etc/apt/sources.list.d/pgdg.list'"
         execute :sudo, 'sh', '-c', pgdg_repo
 
-        execute :sudo, 'apt-get', 'update', '-qq'
-        execute :sudo, 'DEBIAN_FRONTEND=noninteractive', 'apt-get', 'install', '-y', '-qq', "postgresql-#{version}",
-                "postgresql-client-#{version}"
+        execute :sudo, 'apt-get', '-o', 'DPkg::Lock::Timeout=300', 'update', '-qq'
+        execute :sudo, 'DEBIAN_FRONTEND=noninteractive', 'apt-get',
+                '-o', 'DPkg::Lock::Timeout=300', 'install', '-y', '-qq',
+                "postgresql-#{version}", "postgresql-client-#{version}"
 
         execute :sudo, 'systemctl', 'enable', 'postgresql'
         execute :sudo, 'systemctl', 'start', 'postgresql' unless test('systemctl is-active postgresql')

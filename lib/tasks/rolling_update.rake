@@ -56,8 +56,10 @@ namespace :postgres do
       puts "\nUpdating #{standby}..."
       ssh_executor.execute_on_host(standby) do
         execute :sudo, 'systemctl', 'stop', "postgresql@#{current_version}-main"
-        execute :sudo, 'apt-get', 'update'
-        execute :sudo, 'apt-get', 'install', '-y', "postgresql-#{new_version}", "postgresql-contrib-#{new_version}"
+        execute :sudo, 'apt-get', '-o', 'DPkg::Lock::Timeout=300', 'update'
+        execute :sudo, 'DEBIAN_FRONTEND=noninteractive', 'apt-get',
+                '-o', 'DPkg::Lock::Timeout=300', 'install', '-y',
+                "postgresql-#{new_version}", "postgresql-contrib-#{new_version}"
 
         puts "Upgrading cluster from #{current_version} to #{new_version}..."
         execute :sudo, 'pg_upgradecluster', current_version.to_s, 'main'
@@ -99,8 +101,10 @@ namespace :postgres do
       puts "\nUpdating #{primary}..."
       ssh_executor.execute_on_host(primary) do
         execute :sudo, 'systemctl', 'stop', "postgresql@#{current_version}-main"
-        execute :sudo, 'apt-get', 'update'
-        execute :sudo, 'apt-get', 'install', '-y', "postgresql-#{new_version}", "postgresql-contrib-#{new_version}"
+        execute :sudo, 'apt-get', '-o', 'DPkg::Lock::Timeout=300', 'update'
+        execute :sudo, 'DEBIAN_FRONTEND=noninteractive', 'apt-get',
+                '-o', 'DPkg::Lock::Timeout=300', 'install', '-y',
+                "postgresql-#{new_version}", "postgresql-contrib-#{new_version}"
 
         puts "Upgrading cluster from #{current_version} to #{new_version}..."
         execute :sudo, 'pg_upgradecluster', current_version.to_s, 'main'
@@ -156,8 +160,9 @@ namespace :postgres do
 
       puts "\n📋 Step 1: Patch standby #{standby}"
       ssh_executor.execute_on_host(standby) do
-        execute :sudo, 'apt-get', 'update'
-        execute :sudo, 'apt-get', 'install', '--only-upgrade', '-y', "postgresql-#{version}"
+        execute :sudo, 'apt-get', '-o', 'DPkg::Lock::Timeout=300', 'update'
+        execute :sudo, 'DEBIAN_FRONTEND=noninteractive', 'apt-get',
+                '-o', 'DPkg::Lock::Timeout=300', 'install', '--only-upgrade', '-y', "postgresql-#{version}"
         execute :sudo, 'systemctl', 'restart', "postgresql@#{version}-main"
       end
       puts '✓ Standby patched and restarted'
@@ -169,8 +174,9 @@ namespace :postgres do
 
       puts "\n📋 Step 3: Patch old primary #{primary}"
       ssh_executor.execute_on_host(primary) do
-        execute :sudo, 'apt-get', 'update'
-        execute :sudo, 'apt-get', 'install', '--only-upgrade', '-y', "postgresql-#{version}"
+        execute :sudo, 'apt-get', '-o', 'DPkg::Lock::Timeout=300', 'update'
+        execute :sudo, 'DEBIAN_FRONTEND=noninteractive', 'apt-get',
+                '-o', 'DPkg::Lock::Timeout=300', 'install', '--only-upgrade', '-y', "postgresql-#{version}"
         execute :sudo, 'systemctl', 'restart', "postgresql@#{version}-main"
       end
       puts '✓ Old primary patched'
@@ -211,8 +217,9 @@ namespace :postgres do
       puts "\n🔄 Starting in-place upgrade..."
       ssh_executor.execute_on_host(host) do
         execute :sudo, 'systemctl', 'stop', "postgresql@#{current_version}-main"
-        execute :sudo, 'apt-get', 'update'
-        execute :sudo, 'apt-get', 'install', '-y', "postgresql-#{new_version}"
+        execute :sudo, 'apt-get', '-o', 'DPkg::Lock::Timeout=300', 'update'
+        execute :sudo, 'DEBIAN_FRONTEND=noninteractive', 'apt-get',
+                '-o', 'DPkg::Lock::Timeout=300', 'install', '-y', "postgresql-#{new_version}"
 
         execute :sudo, 'pg_upgradecluster', current_version.to_s, 'main'
         execute :sudo, 'pg_dropcluster', '--stop', current_version.to_s, 'main'

@@ -99,7 +99,7 @@ class RepmgrTemplatesTest < Minitest::Test
   def test_conf_includes_ssh_options
     content = render_conf({}, host: 'primary.example.com')
 
-    assert_includes content, "ssh_options='-i /var/lib/postgresql/.ssh/active_postgres_dns -o StrictHostKeyChecking=no'"
+    assert_includes content, "ssh_options='-l postgres -i /var/lib/postgresql/.ssh/active_postgres_dns -o IdentitiesOnly=yes -o StrictHostKeyChecking=no'"
   end
 
   def test_conf_includes_dns_failover_event_hook
@@ -224,7 +224,8 @@ class RepmgrTemplatesTest < Minitest::Test
     )
 
     assert_includes content, 'DNSMASQ_FILE="/etc/dnsmasq.d/active_postgres.conf"'
-    assert_includes content, 'cat > ${DNSMASQ_FILE}'
+    assert_includes content, 'DNSMASQ_STATIC_FILE="/etc/dnsmasq.d/messhy.conf"'
+    assert_includes content, 'sudo tee ${DNSMASQ_FILE}'
   end
 
   def test_dns_script_restarts_dnsmasq

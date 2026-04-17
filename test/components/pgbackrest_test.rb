@@ -90,6 +90,60 @@ class PgBackRestTest < Minitest::Test
     ssh_executor.verify
   end
 
+  def test_log_archive_cron_uses_configured_schedule
+    config = stub_config(primary_host: 'primary.example.com')
+    secrets = ActivePostgres::Secrets.new(config)
+    component = ActivePostgres::Components::PgBackRest.new(config, Object.new, secrets)
+
+    cron = component.send(:log_archive_cron, { schedule: '42 4 * * *' })
+
+    assert_includes cron, '42 4 * * * root /usr/local/bin/active-postgres-archive-logs'
+  end
+
+  def test_log_archive_env_uses_pgbackrest_s3_credentials_and_prefix
+    config = stub_config(
+      primary_host: 'primary.example.com',
+      primary: { 'host' => 'primary.example.com', 'private_ip' => '10.0.0.10', 'label' => 'primary-db' },
+      secrets_config: {
+        's3_access_key' => 'access key',
+        's3_secret_key' => 'secret/value'
+      }
+    )
+    secrets = ActivePostgres::Secrets.new(config)
+    component = ActivePostgres::Components::PgBackRest.new(config, Object.new, secrets)
+
+    env = component.send(
+      :log_archive_env,
+      {
+        repo_type: 's3',
+        s3_bucket: 'backups',
+        s3_region: 'auto',
+        s3_endpoint: 't3.storage.dev'
+      },
+      { prefix: 'postgres-logs' },
+      'primary.example.com'
+    )
+
+    assert_includes env, "AWS_ACCESS_KEY_ID=access\\ key\n"
+    assert_includes env, "AWS_SECRET_ACCESS_KEY=secret/value\n"
+    assert_includes env, "AWS_BUCKET=backups\n"
+    assert_includes env, "AWS_ENDPOINT_URL=https://t3.storage.dev\n"
+    assert_includes env, "POSTGRES_LOG_ARCHIVE_PREFIX=postgres-logs\n"
+    assert_includes env, "POSTGRES_LOG_ARCHIVE_NODE=primary-db\n"
+  end
+
+  def test_log_archive_env_requires_s3_credentials
+    config = stub_config(primary_host: 'primary.example.com')
+    secrets = ActivePostgres::Secrets.new(config)
+    component = ActivePostgres::Components::PgBackRest.new(config, Object.new, secrets)
+
+    error = assert_raises(ActivePostgres::Error) do
+      component.send(:log_archive_env, { repo_type: 's3', s3_bucket: 'backups' }, {}, 'primary.example.com')
+    end
+
+    assert_match(/s3_access_key/, error.message)
+  end
+
   def test_pgbackrest_config_s3_template_variables
     pgbackrest_config = {
       repo_type: 's3',
@@ -214,5 +268,34 @@ class PgBackRestTest < Minitest::Test
     pgbackrest.install_on_standby('standby.example.com')
 
     assert_equal false, install_called_with_create_stanza, 'install_on_standby should not create stanza'
+  end
+
+  def test_install_on_standby_removes_stale_backup_schedules
+    config = stub_config(
+      primary_host: 'primary.example.com',
+      standby_hosts: ['standby.example.com'],
+      postgres_user: 'postgres',
+      component_config: {
+        pgbackrest: { repo_type: 'local' }
+      }
+    )
+
+    ssh_executor = Minitest::Mock.new
+    ssh_executor.expect(:execute_on_host, nil, ['standby.example.com'])
+    secrets = ActivePostgres::Secrets.new(config)
+    pgbackrest = ActivePostgres::Components::PgBackRest.new(config, ssh_executor, secrets)
+    calls = []
+
+    pgbackrest.define_singleton_method(:install_apt_packages) { |host, *packages| calls << [:apt, host, packages] }
+    pgbackrest.define_singleton_method(:upload_template) { |host, *_args| calls << [:template, host] }
+    pgbackrest.define_singleton_method(:remove_log_archive) { |host| calls << [:remove_log_archive, host] }
+    pgbackrest.define_singleton_method(:remove_backup_schedule) { |host| calls << [:remove_backup_schedule, host] }
+    pgbackrest.define_singleton_method(:setup_backup_schedules) { |host, _config| calls << [:setup_backup_schedules, host] }
+
+    pgbackrest.send(:install_on_host, 'standby.example.com', create_stanza: false)
+
+    assert_includes calls, [:remove_backup_schedule, 'standby.example.com']
+    refute_includes calls, [:setup_backup_schedules, 'standby.example.com']
+    ssh_executor.verify
   end
 end

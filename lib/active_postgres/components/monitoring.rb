@@ -60,10 +60,7 @@ module ActivePostgres
         exporter_port = monitoring_config[:exporter_port] || 9187
 
         # Download and install postgres_exporter
-        ssh_executor.execute_on_host(host) do
-          # Install via package manager or download binary
-          execute :sudo, 'apt-get', 'install', '-y', '-qq', 'prometheus-postgres-exporter'
-        end
+        install_apt_packages(host, 'prometheus-postgres-exporter')
 
         configure_exporter_service(host, monitoring_config, exporter_port)
 
@@ -157,9 +154,7 @@ module ActivePostgres
         listen_address = monitoring_config[:node_exporter_listen_address].to_s.strip
         puts "  Installing node_exporter on #{host}..."
 
-        ssh_executor.execute_on_host(host) do
-          execute :sudo, 'apt-get', 'install', '-y', '-qq', 'prometheus-node-exporter'
-        end
+        install_apt_packages(host, 'prometheus-node-exporter')
 
         configure_node_exporter_service(host, port, listen_address)
 
@@ -213,12 +208,15 @@ module ActivePostgres
         puts "Installing Grafana on #{host}..."
 
         ssh_executor.execute_on_host(host) do
-          execute :sudo, 'apt-get', 'install', '-y', '-qq', 'apt-transport-https', 'software-properties-common', 'wget'
+          execute :sudo, 'DEBIAN_FRONTEND=noninteractive', 'apt-get',
+                  '-o', 'DPkg::Lock::Timeout=300', 'install', '-y', '-qq',
+                  'apt-transport-https', 'software-properties-common', 'wget'
           execute :sudo, 'wget', '-q', '-O', '/usr/share/keyrings/grafana.gpg', 'https://apt.grafana.com/gpg.key'
           execute :sudo, 'sh', '-c',
                   'echo "deb [signed-by=/usr/share/keyrings/grafana.gpg] https://apt.grafana.com stable main" > /etc/apt/sources.list.d/grafana.list'
-          execute :sudo, 'apt-get', 'update', '-qq'
-          execute :sudo, 'apt-get', 'install', '-y', '-qq', 'grafana'
+          execute :sudo, 'apt-get', '-o', 'DPkg::Lock::Timeout=300', 'update', '-qq'
+          execute :sudo, 'DEBIAN_FRONTEND=noninteractive', 'apt-get',
+                  '-o', 'DPkg::Lock::Timeout=300', 'install', '-y', '-qq', 'grafana'
           execute :sudo, 'systemctl', 'enable', '--now', 'grafana-server'
           execute :sudo, 'grafana-cli', 'admin', 'reset-admin-password', admin_password
         end

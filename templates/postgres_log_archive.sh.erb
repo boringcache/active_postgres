@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+umask 077
+
+ENV_FILE="/etc/active-postgres-log-archive.env"
+if [[ ! -r "$ENV_FILE" ]]; then
+  echo "missing $ENV_FILE" >&2
+  exit 1
+fi
+
+set -a
+source "$ENV_FILE"
+set +a
+
+LOG_DIR="${POSTGRES_LOG_ARCHIVE_LOG_DIR:-/var/log/postgresql}"
+WORK_DIR="${POSTGRES_LOG_ARCHIVE_WORK_DIR:-/var/tmp/active-postgres-log-archive}"
+PREFIX="${POSTGRES_LOG_ARCHIVE_PREFIX:-postgres-logs}"
+NODE="${POSTGRES_LOG_ARCHIVE_NODE:-$(hostname -f 2>/dev/null || hostname)}"
+DATE_PATH="$(date -u +%Y/%m/%d)"
+STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+LOCK_FILE="/var/run/active-postgres-log-archive.lock"
+
+mkdir -p "$WORK_DIR"
+exec 9>"$LOCK_FILE"
+flock -n 9 || exit 0
+
+shopt -s nullglob
+log_files=("$LOG_DIR"/postgresql-*.log "$LOG_DIR"/repmgr.log)
+if [[ ${#log_files[@]} -eq 0 ]]; then
+  exit 0
+fi
+
+archive="$WORK_DIR/postgresql-logs-${NODE}-${STAMP}.tar.gz"
+cleanup() {
+  rm -f "$archive"
+}
+trap cleanup EXIT
+
+tar_paths=()
+for file in "${log_files[@]}"; do
+  [[ -f "$file" ]] && tar_paths+=("${file#/}")
+done
+
+if [[ ${#tar_paths[@]} -eq 0 ]]; then
+  exit 0
+fi
+
+tar -czf "$archive" -C / "${tar_paths[@]}"
+
+destination="s3://${AWS_BUCKET}/${PREFIX%/}/${NODE}/${DATE_PATH}/$(basename "$archive")"
+aws_args=(s3 cp "$archive" "$destination" --only-show-errors)
+if [[ -n "${AWS_ENDPOINT_URL:-}" ]]; then
+  aws_args+=(--endpoint-url "$AWS_ENDPOINT_URL")
+fi
+
+aws "${aws_args[@]}"

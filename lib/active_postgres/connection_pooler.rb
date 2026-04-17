@@ -240,8 +240,8 @@ module ActivePostgres
 
       @ssh_executor.execute_on_host(host) do
         # Install PgBouncer package
-        execute :sudo, 'DEBIAN_FRONTEND=noninteractive', 'apt-get', 'install',
-                '-y', '-qq', 'pgbouncer'
+        execute :sudo, 'DEBIAN_FRONTEND=noninteractive', 'apt-get',
+                '-o', 'DPkg::Lock::Timeout=300', 'install', '-y', '-qq', 'pgbouncer'
 
         # Create required directories
         execute :sudo, 'mkdir', '-p', '/var/log/pgbouncer'

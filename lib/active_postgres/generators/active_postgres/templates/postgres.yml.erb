@@ -50,6 +50,8 @@ shared: &shared
       enabled: false
       # Optional: Override default pgbouncer user
       # user: pgbouncer
+      # Keep PgBouncer on every node pointed at the current primary.
+      # Set standby.pgbouncer_follow_primary: false on a specific standby to keep it local.
       # follow_primary: true
       # follow_primary_interval: 5
     

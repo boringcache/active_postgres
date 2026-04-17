@@ -52,24 +52,11 @@ class PgBouncerTest < Minitest::Test
       }
     )
 
-    ssh_executor = Minitest::Mock.new
+    ssh_executor = noop_ssh_executor
     secrets = Minitest::Mock.new
     secrets.expect(:resolve, nil, ['ssl_chain'])
     secrets.expect(:resolve, nil, ['ssl_chain'])
     pgbouncer = ActivePostgres::Components::PgBouncer.new(config, ssh_executor, secrets)
-
-    ssh_executor.expect(:execute_on_host, nil) do |host|
-      host == 'db.example.com'
-    end
-    ssh_executor.expect(:execute_on_host, nil) do |host|
-      host == 'db.example.com'
-    end
-    ssh_executor.expect(:execute_on_host, nil) do |host|
-      host == 'standby.example.com'
-    end
-    ssh_executor.expect(:execute_on_host, nil) do |host|
-      host == 'standby.example.com'
-    end
 
     def pgbouncer.upload_template(*); end
     def pgbouncer.get_postgres_max_connections(*) = 100
@@ -109,12 +96,14 @@ class PgBouncerTest < Minitest::Test
 
     content = component.instance_eval do
       repmgr_conf = '/etc/repmgr.conf'
+      repmgr_database = 'repmgr'
       postgres_user = 'postgres'
-      _ = [repmgr_conf, postgres_user]
+      _ = [repmgr_conf, repmgr_database, postgres_user]
       render_template('pgbouncer_follow_primary.sh.erb', binding)
     end
 
-    assert_includes content, 'repmgr -f "$REPMGR_CONF" cluster show --csv'
+    assert_includes content, 'psql -h /var/run/postgresql -d "$REPMGR_DB" -tAF'
+    assert_includes content, 'SELECT type, conninfo FROM repmgr.nodes WHERE active = true'
     assert_includes content, 'PGBOUNCER_INI="/etc/pgbouncer/pgbouncer.ini"'
     assert_includes content, '/usr/bin/sed -i -E "s/^(\\\\* = host=)[^ ]+/\\\\1${primary_host}/"'
     assert_includes content, '${primary_host}'
@@ -134,7 +123,7 @@ class PgBouncerTest < Minitest::Test
     assert_includes content, 'OnUnitActiveSec=5s'
   end
 
-  def test_standby_defaults_to_localhost_when_pgbouncer_follow_primary_not_set
+  def test_standby_uses_global_follow_primary_when_override_not_set
     config = stub_config(
       primary_host: 'primary.example.com',
       standby_hosts: ['standby.example.com'],
@@ -154,8 +143,7 @@ class PgBouncerTest < Minitest::Test
     secrets = Minitest::Mock.new
     secrets.expect(:resolve, nil, ['ssl_chain'])
 
-    ssh_executor = Minitest::Mock.new
-    2.times { ssh_executor.expect(:execute_on_host, nil) { |_host| true } }
+    ssh_executor = noop_ssh_executor
 
     pgbouncer = ActivePostgres::Components::PgBouncer.new(config, ssh_executor, secrets)
 
@@ -166,12 +154,13 @@ class PgBouncerTest < Minitest::Test
     def pgbouncer.get_postgres_max_connections(*) = 100
     def pgbouncer.create_userlist(*); end
     def pgbouncer.setup_ssl_certs(*); end
+    def pgbouncer.install_follow_primary(*); end
     def pgbouncer.captured_config; @captured_config; end
 
     pgbouncer.send(:install_on_host, 'standby.example.com', is_standby: true)
 
     captured_config = pgbouncer.captured_config['standby.example.com']
-    assert_equal '127.0.0.1', captured_config[:database_host]
+    assert_equal '10.0.0.10', captured_config[:database_host]
   end
 
   def test_standby_with_pgbouncer_follow_primary_true_uses_primary_host
@@ -194,8 +183,7 @@ class PgBouncerTest < Minitest::Test
     secrets = Minitest::Mock.new
     secrets.expect(:resolve, nil, ['ssl_chain'])
 
-    ssh_executor = Minitest::Mock.new
-    2.times { ssh_executor.expect(:execute_on_host, nil) { |_host| true } }
+    ssh_executor = noop_ssh_executor
 
     pgbouncer = ActivePostgres::Components::PgBouncer.new(config, ssh_executor, secrets)
 
@@ -235,8 +223,7 @@ class PgBouncerTest < Minitest::Test
     secrets = Minitest::Mock.new
     secrets.expect(:resolve, nil, ['ssl_chain'])
 
-    ssh_executor = Minitest::Mock.new
-    2.times { ssh_executor.expect(:execute_on_host, nil) { |_host| true } }
+    ssh_executor = noop_ssh_executor
 
     pgbouncer = ActivePostgres::Components::PgBouncer.new(config, ssh_executor, secrets)
 
@@ -247,6 +234,7 @@ class PgBouncerTest < Minitest::Test
     def pgbouncer.get_postgres_max_connections(*) = 100
     def pgbouncer.create_userlist(*); end
     def pgbouncer.setup_ssl_certs(*); end
+    def pgbouncer.install_follow_primary(*); end
     def pgbouncer.captured_config; @captured_config; end
 
     pgbouncer.send(:install_on_host, 'standby.example.com', is_standby: true)
@@ -273,8 +261,7 @@ class PgBouncerTest < Minitest::Test
     secrets = Minitest::Mock.new
     secrets.expect(:resolve, nil, ['ssl_chain'])
 
-    ssh_executor = Minitest::Mock.new
-    2.times { ssh_executor.expect(:execute_on_host, nil) { |_host| true } }
+    ssh_executor = noop_ssh_executor
 
     pgbouncer = ActivePostgres::Components::PgBouncer.new(config, ssh_executor, secrets)
 
@@ -312,8 +299,7 @@ class PgBouncerTest < Minitest::Test
     secrets = Minitest::Mock.new
     secrets.expect(:resolve, nil, ['ssl_chain'])
 
-    ssh_executor = Minitest::Mock.new
-    2.times { ssh_executor.expect(:execute_on_host, nil) { |_host| true } }
+    ssh_executor = noop_ssh_executor
 
     pgbouncer = ActivePostgres::Components::PgBouncer.new(config, ssh_executor, secrets)
 
@@ -324,6 +310,7 @@ class PgBouncerTest < Minitest::Test
     def pgbouncer.get_postgres_max_connections(*) = 100
     def pgbouncer.create_userlist(*); end
     def pgbouncer.setup_ssl_certs(*); end
+    def pgbouncer.install_follow_primary(*); end
     def pgbouncer.captured_config; @captured_config; end
 
     pgbouncer.send(:install_on_host, 'primary.example.com', is_standby: false)
@@ -353,8 +340,7 @@ class PgBouncerTest < Minitest::Test
     secrets = Minitest::Mock.new
     3.times { secrets.expect(:resolve, nil, ['ssl_chain']) }
 
-    ssh_executor = Minitest::Mock.new
-    6.times { ssh_executor.expect(:execute_on_host, nil) { |_host| true } }
+    ssh_executor = noop_ssh_executor
 
     pgbouncer = ActivePostgres::Components::PgBouncer.new(config, ssh_executor, secrets)
 
@@ -375,7 +361,7 @@ class PgBouncerTest < Minitest::Test
     captured = pgbouncer.captured_config
 
     assert_equal '10.0.0.10', captured['primary.example.com'][:database_host]
-    assert_equal '127.0.0.1', captured['replica-london.example.com'][:database_host]
+    assert_equal '10.0.0.10', captured['replica-london.example.com'][:database_host]
     assert_equal '10.0.0.10', captured['standby-virginia.example.com'][:database_host]
   end
 
@@ -397,8 +383,7 @@ class PgBouncerTest < Minitest::Test
     secrets = Minitest::Mock.new
     2.times { secrets.expect(:resolve, nil, ['ssl_chain']) }
 
-    ssh_executor = Minitest::Mock.new
-    2.times { ssh_executor.expect(:execute_on_host, nil) { |_host| true } }
+    ssh_executor = noop_ssh_executor
 
     pgbouncer = ActivePostgres::Components::PgBouncer.new(config, ssh_executor, secrets)
 
@@ -479,7 +464,7 @@ class PgBouncerTest < Minitest::Test
     assert_match(/follow_primary requires repmgr/i, error.message)
   end
 
-  def test_standby_config_not_found_defaults_to_localhost
+  def test_standby_config_not_found_uses_global_follow_primary
     config = stub_config(
       primary_host: 'primary.example.com',
       standby_hosts: ['unknown-standby.example.com'],
@@ -497,8 +482,7 @@ class PgBouncerTest < Minitest::Test
     secrets = Minitest::Mock.new
     secrets.expect(:resolve, nil, ['ssl_chain'])
 
-    ssh_executor = Minitest::Mock.new
-    2.times { ssh_executor.expect(:execute_on_host, nil) { |_host| true } }
+    ssh_executor = noop_ssh_executor
 
     pgbouncer = ActivePostgres::Components::PgBouncer.new(config, ssh_executor, secrets)
 
@@ -509,15 +493,16 @@ class PgBouncerTest < Minitest::Test
     def pgbouncer.get_postgres_max_connections(*) = 100
     def pgbouncer.create_userlist(*); end
     def pgbouncer.setup_ssl_certs(*); end
+    def pgbouncer.install_follow_primary(*); end
     def pgbouncer.captured_config; @captured_config; end
 
     pgbouncer.send(:install_on_host, 'unknown-standby.example.com', is_standby: true)
 
     captured_config = pgbouncer.captured_config['unknown-standby.example.com']
-    assert_equal '127.0.0.1', captured_config[:database_host]
+    assert_equal '10.0.0.10', captured_config[:database_host]
   end
 
-  def test_global_follow_primary_ignored_for_standbys
+  def test_global_follow_primary_applies_to_standbys
     config = stub_config(
       primary_host: 'primary.example.com',
       standby_hosts: ['standby.example.com'],
@@ -537,8 +522,7 @@ class PgBouncerTest < Minitest::Test
     secrets = Minitest::Mock.new
     2.times { secrets.expect(:resolve, nil, ['ssl_chain']) }
 
-    ssh_executor = Minitest::Mock.new
-    4.times { ssh_executor.expect(:execute_on_host, nil) { |_host| true } }
+    ssh_executor = noop_ssh_executor
 
     pgbouncer = ActivePostgres::Components::PgBouncer.new(config, ssh_executor, secrets)
 
@@ -556,6 +540,14 @@ class PgBouncerTest < Minitest::Test
     pgbouncer.send(:install_on_host, 'standby.example.com', is_standby: true)
 
     assert_equal '10.0.0.10', pgbouncer.captured_config['primary.example.com'][:database_host]
-    assert_equal '127.0.0.1', pgbouncer.captured_config['standby.example.com'][:database_host]
+    assert_equal '10.0.0.10', pgbouncer.captured_config['standby.example.com'][:database_host]
+  end
+
+  private
+
+  def noop_ssh_executor
+    Object.new.tap do |executor|
+      def executor.execute_on_host(_host); end
+    end
   end
 end

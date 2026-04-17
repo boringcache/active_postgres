@@ -6,6 +6,7 @@ DNS_USER="<%= dns_user %>"
 DNS_SERVERS=(<%= dns_servers.map(&:to_s).join(' ') %>)
 DNS_SSH_KEY="<%= dns_ssh_key_path %>"
 DNSMASQ_FILE="/etc/dnsmasq.d/active_postgres.conf"
+DNSMASQ_STATIC_FILE="/etc/dnsmasq.d/messhy.conf"
 PRIMARY_RECORDS=(<%= primary_records.map(&:to_s).join(' ') %>)
 REPLICA_RECORDS=(<%= replica_records.map(&:to_s).join(' ') %>)
 SSH_STRICT_HOST_KEY="<%= ssh_strict_host_key %>"
@@ -16,7 +17,7 @@ REPMGR_DB=$(grep -oP "dbname=\K[^ ']+" "$REPMGR_CONF" | head -1)
 REPMGR_USER=$(grep -oP "user=\K[^ ']+" "$REPMGR_CONF" 2>/dev/null | head -1)
 REPMGR_USER="${REPMGR_USER:-repmgr}"
 
-cluster_data=$(sudo -u postgres psql -h /var/run/postgresql -d "$REPMGR_DB" -tAF',' -c "SELECT type, conninfo FROM repmgr.nodes WHERE active = true" 2>/dev/null || true)
+cluster_data=$(psql -h /var/run/postgresql -d "$REPMGR_DB" -tAF',' -c "SELECT type, conninfo FROM repmgr.nodes WHERE active = true" 2>/dev/null || true)
 if [[ -z "$cluster_data" ]]; then
   exit 0
 fi
@@ -48,14 +49,20 @@ if [[ -n "$standby_hosts" ]]; then
 fi
 
 ssh_opts=(-i "$DNS_SSH_KEY" -o BatchMode=yes -o StrictHostKeyChecking="$SSH_STRICT_HOST_KEY" -o UserKnownHostsFile="$SSH_KNOWN_HOSTS")
+cleanup_cmd=""
+for record in "${PRIMARY_RECORDS[@]}" "${REPLICA_RECORDS[@]}"; do
+  if [[ -n "$record" ]]; then
+    cleanup_cmd="${cleanup_cmd}sudo sed -i '\\#^address=/${record}/#d' ${DNSMASQ_STATIC_FILE} 2>/dev/null || true; "
+  fi
+done
 
 for server in "${DNS_SERVERS[@]}"; do
   if [[ -z "$server" ]]; then
     continue
   fi
 
-  if ! /usr/bin/ssh "${ssh_opts[@]}" "${DNS_USER}@${server}" \
-    "sudo bash -c 'cat > ${DNSMASQ_FILE} << \"EOF\"\\n${content}EOF\\n' && sudo systemctl restart dnsmasq"; then
+  if ! printf "%s" "$content" | /usr/bin/ssh "${ssh_opts[@]}" "${DNS_USER}@${server}" \
+    "${cleanup_cmd}sudo tee ${DNSMASQ_FILE} >/dev/null && sudo systemctl restart dnsmasq"; then
     /usr/bin/logger -t "$LOG_TAG" "Failed updating dnsmasq on ${server}"
   fi
 done

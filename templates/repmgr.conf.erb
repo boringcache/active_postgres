@@ -36,7 +36,7 @@ service_stop_command='sudo systemctl stop postgresql@<%= config.version %>-main'
 service_restart_command='sudo systemctl restart postgresql@<%= config.version %>-main'
 service_reload_command='sudo systemctl reload postgresql@<%= config.version %>-main'
 
-ssh_options='-i /var/lib/postgresql/.ssh/active_postgres_dns -o StrictHostKeyChecking=no'
+ssh_options='-l <%= repmgr_config[:ssh_user] || config.postgres_user %> -i /var/lib/postgresql/.ssh/active_postgres_dns -o IdentitiesOnly=yes -o StrictHostKeyChecking=no'
 
 log_level=INFO
 log_facility=STDERR

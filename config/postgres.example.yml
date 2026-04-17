@@ -49,10 +49,12 @@ shared: &shared
         
         # Logging
         logging_collector: 'on'
-        log_directory: 'log'
-        log_filename: 'postgresql-%Y-%m-%d_%H%M%S.log'
+        log_directory: '/var/log/postgresql'
+        log_filename: 'postgresql-%a.log'
+        log_file_mode: '0640'
         log_rotation_age: 1d
-        log_rotation_size: 100MB
+        log_rotation_size: 0
+        log_truncate_on_rotation: 'on'
       
       # Host-based authentication (pg_hba.conf)
       pg_hba:
@@ -69,12 +71,12 @@ shared: &shared
           address: 127.0.0.1/32
           method: scram-sha-256
         
-              # Allow from private network (adjust to your network)
-              - type: host
-                database: all
-                user: all
-                address: 192.168.0.0/16
-                method: scram-sha-256
+        # Allow from private network (adjust to your network)
+        - type: host
+          database: all
+          user: all
+          address: 192.168.0.0/16
+          method: scram-sha-256
         
         # Replication connections (if repmgr enabled)
         - type: host
@@ -136,7 +138,8 @@ shared: &shared
       # default_pool_size: 25       # Auto: calculated based on max_connections
       # reserve_pool_size: 5
       # reserve_pool_timeout: 5
-      # Keep PgBouncer pointed at the current primary (requires repmgr)
+      # Keep PgBouncer on every node pointed at the current primary (requires repmgr).
+      # Set standby.pgbouncer_follow_primary: false on a specific standby to keep it local.
       # follow_primary: true
       # follow_primary_interval: 5
     
@@ -154,6 +157,12 @@ shared: &shared
       schedule_incremental: "0 * * * *"
       retention_full: 7
       retention_archive: 14
+      # Optional diagnostic text-log archive. Uses the same S3 credentials as pgBackRest
+      # and writes under a separate prefix from database/WAL backups.
+      log_archive:
+        enabled: false
+        schedule: "17 3 * * *"
+        prefix: postgres-logs
     
     monitoring:
       enabled: true

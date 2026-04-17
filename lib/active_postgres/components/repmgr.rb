@@ -11,6 +11,7 @@ module ActivePostgres
           setup_standby(host)
         end
 
+        setup_inter_node_ssh if config.standby_hosts.any?
         setup_dns_failover if dns_failover_enabled?
 
         # Verify the entire cluster is healthy after setup
@@ -64,10 +65,7 @@ module ActivePostgres
         puts "Setting up standby #{standby_host} (primary will not be touched)..."
 
         version = config.version
-        ssh_executor.execute_on_host(standby_host) do
-          execute :sudo, 'DEBIAN_FRONTEND=noninteractive', 'apt-get', 'install', '-y', '-qq',
-                  "postgresql-#{version}-repmgr"
-        end
+        install_apt_packages(standby_host, "postgresql-#{version}-repmgr")
 
         setup_standby(standby_host)
 
@@ -81,10 +79,7 @@ module ActivePostgres
 
         version = config.version
         config.all_hosts.each do |host|
-          ssh_executor.execute_on_host(host) do
-            execute :sudo, 'DEBIAN_FRONTEND=noninteractive', 'apt-get', 'install', '-y', '-qq',
-                    "postgresql-#{version}-repmgr"
-          end
+          install_apt_packages(host, "postgresql-#{version}-repmgr")
           install_postgres_sudoers(host)
         end
       end
@@ -275,6 +270,7 @@ module ActivePostgres
           update_postgres_configs_on_standby(standby_host, version)
           ensure_ssl_certs(standby_host, version) if config.component_enabled?(:ssl)
           register_standby_with_primary(standby_host)
+          setup_inter_node_ssh
           enable_repmgrd_if_configured(standby_host, repmgr_config)
           return
         end
@@ -428,9 +424,7 @@ module ActivePostgres
         pub_keys = {}
 
         all_hosts.each do |host|
-          ssh_executor.execute_on_host(host) do
-            pub_keys[host] = capture(:sudo, '-u', postgres_user, 'cat', "#{key_path}.pub").strip
-          end
+          pub_keys[host] = ensure_dns_ssh_key(host, key_path, [])
         end
 
         all_hosts.each do |host|
@@ -1073,13 +1067,23 @@ module ActivePostgres
       def enable_repmgrd_if_configured(host, repmgr_config)
         return if repmgr_config[:auto_failover] == false
 
+        default_config = <<~CONF
+          REPMGRD_ENABLED=yes
+          REPMGRD_CONF="/etc/repmgr.conf"
+          REPMGRD_OPTS=""
+          REPMGRD_USER=postgres
+          REPMGRD_BIN=/usr/bin/repmgrd
+          REPMGRD_PIDFILE=/var/run/repmgrd.pid
+        CONF
+
         ssh_executor.execute_on_host(host) do
-          begin
-            execute :sudo, 'systemctl', 'enable', 'repmgrd'
-            execute :sudo, 'systemctl', 'restart', 'repmgrd'
-          rescue StandardError
-            nil
-          end
+          upload! StringIO.new(default_config), '/tmp/repmgrd-default'
+          execute :sudo, 'mv', '/tmp/repmgrd-default', '/etc/default/repmgrd'
+          execute :sudo, 'chown', 'root:root', '/etc/default/repmgrd'
+          execute :sudo, 'chmod', '644', '/etc/default/repmgrd'
+          execute :sudo, 'systemctl', 'enable', 'repmgrd'
+          execute :sudo, 'systemctl', 'restart', 'repmgrd'
+          execute :pgrep, '-x', 'repmgrd'
         end
       end
 

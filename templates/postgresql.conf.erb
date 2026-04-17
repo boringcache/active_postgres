@@ -95,8 +95,12 @@ max_parallel_maintenance_workers = <%= pg_config[:max_parallel_maintenance_worke
 logging_collector = <%= pg_config[:logging_collector] || 'on' %>
 log_directory = '<%= pg_config[:log_directory] || 'log' %>'
 log_filename = '<%= pg_config[:log_filename] || 'postgresql-%Y-%m-%d_%H%M%S.log' %>'
+log_file_mode = <%= pg_config[:log_file_mode] || '0600' %>
 log_rotation_age = <%= pg_config[:log_rotation_age] || '1d' %>
 log_rotation_size = <%= pg_config[:log_rotation_size] || '100MB' %>
+<% if pg_config[:log_truncate_on_rotation] %>
+log_truncate_on_rotation = <%= pg_config[:log_truncate_on_rotation] %>
+<% end %>
 log_line_prefix = '%t [%p]: [%l-1] user=%u,db=%d,app=%a,client=%h '
 log_timezone = 'UTC'
 <% if pg_config[:log_checkpoints] %>
@@ -143,7 +147,7 @@ jit = <%= pg_config[:jit] %>
 <% end %>
 
 # Additional settings
-shared_preload_libraries = '<%= pg_config[:shared_preload_libraries] || 'pg_stat_statements' %>'
+shared_preload_libraries = '<%= pg_config[:shared_preload_libraries] || (config.component_enabled?(:repmgr) ? 'pg_stat_statements, repmgr' : 'pg_stat_statements') %>'
 <% if pg_config[:'pg_stat_statements.max'] %>
 pg_stat_statements.max = <%= pg_config[:'pg_stat_statements.max'] %>
 <% end %>
@@ -157,5 +161,3 @@ pg_stat_statements.track = <%= pg_config[:'pg_stat_statements.track'] %>
 <%= key %> = <%= value %>
 <% end %>
 <% end %>
-
-

@@ -65,10 +65,9 @@ module ActivePostgres
         return if packages_to_install.empty?
 
         ssh_executor.execute_on_host(host) do
-          execute :sudo, 'apt-get', 'update', '-qq'
-          execute :sudo, 'DEBIAN_FRONTEND=noninteractive', 'apt-get', 'install', '-y', '-qq',
-                  *packages_to_install
+          execute :sudo, 'apt-get', '-o', 'DPkg::Lock::Timeout=300', 'update', '-qq'
         end
+        install_apt_packages(host, *packages_to_install)
       end
 
       def install_on_primary(extensions)

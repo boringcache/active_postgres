@@ -60,15 +60,7 @@ module ActivePostgres
 
         user_config = config.component_config(:pgbouncer)
 
-        # Determine follow_primary behavior:
-        # - Primary: use global follow_primary setting
-        # - Standby: check per-standby pgbouncer_follow_primary, default false (use localhost for read replicas)
-        if is_standby
-          standby_config = config.standby_config_for(host) || {}
-          follow_primary = standby_config['pgbouncer_follow_primary'] == true
-        else
-          follow_primary = user_config[:follow_primary] == true
-        end
+        follow_primary = follow_primary_for?(host, is_standby: is_standby, user_config: user_config)
 
         if follow_primary && !config.component_enabled?(:repmgr)
           raise Error, 'PgBouncer follow_primary requires repmgr to be enabled'
@@ -89,9 +81,7 @@ module ActivePostgres
 
         puts "  Calculated pool settings for max_connections=#{max_connections}"
 
-        ssh_executor.execute_on_host(host) do
-          execute :sudo, 'apt-get', 'install', '-y', '-qq', 'pgbouncer'
-        end
+        install_apt_packages(host, 'pgbouncer')
 
         upload_template(host, 'pgbouncer.ini.erb', '/etc/pgbouncer/pgbouncer.ini', binding, mode: '644')
 
@@ -104,9 +94,27 @@ module ActivePostgres
         ssh_executor.execute_on_host(host) do
           execute :sudo, 'systemctl', 'enable', 'pgbouncer'
           execute :sudo, 'systemctl', 'restart', 'pgbouncer'
+          unless follow_primary
+            execute :sudo, 'systemctl', 'disable', '--now', 'pgbouncer-follow-primary.timer', '||', 'true'
+            execute :sudo, 'rm', '-f', '/usr/local/bin/pgbouncer-follow-primary',
+                    '/etc/systemd/system/pgbouncer-follow-primary.service',
+                    '/etc/systemd/system/pgbouncer-follow-primary.timer'
+            execute :sudo, 'systemctl', 'daemon-reload'
+          end
         end
 
         install_follow_primary(host, pgbouncer_config) if follow_primary
+      end
+
+      def follow_primary_for?(host, is_standby:, user_config:)
+        if is_standby
+          standby_config = config.standby_config_for(host) || {}
+          standby_override = standby_config['pgbouncer_follow_primary']
+          standby_override = standby_config[:pgbouncer_follow_primary] if standby_override.nil?
+          return standby_override == true unless standby_override.nil?
+        end
+
+        user_config[:follow_primary] == true || user_config['follow_primary'] == true
       end
 
       def setup_ssl_certs(host)
@@ -213,9 +221,11 @@ module ActivePostgres
         interval = 5 if interval <= 0
 
         repmgr_conf = '/etc/repmgr.conf'
+        repmgr_database = config.repmgr_database
         postgres_user = config.postgres_user
         _ = interval
         _ = repmgr_conf
+        _ = repmgr_database
         _ = postgres_user
 
         upload_template(host, 'pgbouncer_follow_primary.sh.erb', '/usr/local/bin/pgbouncer-follow-primary', binding,

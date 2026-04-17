@@ -43,6 +43,14 @@ module ActivePostgres
         content = render_template(template_name, binding_context)
         ssh_executor.upload_file(host, content, remote_path, mode: mode, owner: owner)
       end
+
+      def install_apt_packages(host, *packages)
+        ssh_executor.execute_on_host(host) do
+          execute :sudo, 'DEBIAN_FRONTEND=noninteractive', 'apt-get',
+                  '-o', 'DPkg::Lock::Timeout=300',
+                  'install', '-y', '-qq', *packages
+        end
+      end
     end
   end
 end

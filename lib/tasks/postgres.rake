@@ -97,13 +97,14 @@ namespace :postgres do
 
         # Remove packages
         begin
-          execute :sudo, 'DEBIAN_FRONTEND=noninteractive', 'apt-get', 'remove', '--purge', '-y',
+          execute :sudo, 'DEBIAN_FRONTEND=noninteractive', 'apt-get',
+                  '-o', 'DPkg::Lock::Timeout=300', 'remove', '--purge', '-y',
                   'postgresql*', 'pgbouncer', 'repmgr', 'prometheus-postgres-exporter'
         rescue StandardError
           nil
         end
         begin
-          execute :sudo, 'apt-get', 'autoremove', '-y'
+          execute :sudo, 'apt-get', '-o', 'DPkg::Lock::Timeout=300', 'autoremove', '-y'
         rescue StandardError
           nil
         end
