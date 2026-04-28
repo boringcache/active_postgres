@@ -171,7 +171,7 @@ module ActivePostgres
           schedules << { type: 'full', schedule: schedule_full, file: '/etc/cron.d/pgbackrest-backup' }
         end
         if schedule_incremental
-          schedules << { type: 'incremental', schedule: schedule_incremental, file: '/etc/cron.d/pgbackrest-backup-incremental' }
+          schedules << { type: 'incr', schedule: schedule_incremental, file: '/etc/cron.d/pgbackrest-backup-incremental' }
         end
 
         schedules
