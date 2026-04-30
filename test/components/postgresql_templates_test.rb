@@ -33,6 +33,16 @@ class PostgresqlTemplatesTest < Minitest::Test
     assert_includes content, "shared_preload_libraries = 'pg_stat_statements, repmgr'"
   end
 
+  def test_conf_sets_restore_command_when_pgbackrest_component_is_enabled
+    @config = stub_config(component_enabled?: ->(name) { name == :pgbackrest })
+    @component = ActivePostgres::Components::Core.new(@config, Object.new, ActivePostgres::Secrets.new(@config))
+
+    content = render_postgresql_conf({})
+
+    assert_includes content, 'restore_command ='
+    assert_includes content, 'pgbackrest --pg1-path=/var/lib/postgresql/16/main --stanza=main archive-get %f "%p"'
+  end
+
   private
 
   def render_postgresql_conf(pg_config)

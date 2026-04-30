@@ -264,8 +264,9 @@ class RepmgrTemplatesTest < Minitest::Test
       replica_records: ['db-replica.mesh']
     )
 
+    assert_includes content, 'ORDER BY node_id'
     assert_includes content, '$1 == "standby"'
-    assert_includes content, 'sort -u'
+    assert_includes content, '$1 == "standby" {print $2; exit}'
   end
 
   def test_dns_script_skips_empty_records

@@ -421,6 +421,7 @@ module ActivePostgres
         key_path = dns_config && dns_config[:ssh_key_path] || '/var/lib/postgresql/.ssh/active_postgres_dns'
         postgres_user = config.postgres_user
         all_hosts = config.all_hosts
+        replication_hosts = all_hosts.to_h { |host| [host, config.replication_host_for(host)] }
         pub_keys = {}
 
         all_hosts.each do |host|
@@ -430,18 +431,35 @@ module ActivePostgres
         all_hosts.each do |host|
           ssh_executor.execute_on_host(host) do
             other_keys = pub_keys.reject { |h, _| h == host }.values
-            other_keys.each do |key|
-              next if key.to_s.empty?
-
-              upload! StringIO.new("#{key}\n"), '/tmp/pg_peer_key.pub'
-              execute :sudo, '-u', postgres_user, 'bash', '-c',
-                      "grep -qxF -f /tmp/pg_peer_key.pub /var/lib/postgresql/.ssh/authorized_keys 2>/dev/null || cat /tmp/pg_peer_key.pub >> /var/lib/postgresql/.ssh/authorized_keys"
-              execute :rm, '-f', '/tmp/pg_peer_key.pub'
+            authorized_keys_path = '/var/lib/postgresql/.ssh/authorized_keys'
+            existing_keys = if test(:sudo, 'test', '-f', authorized_keys_path)
+                              capture(:sudo, 'cat', authorized_keys_path).lines.map(&:strip)
+                            else
+                              []
+                            end
+            authorized_keys = (existing_keys + other_keys.map(&:to_s).map(&:strip)).reject(&:empty?).uniq.join("\n")
+            unless authorized_keys.empty?
+              upload! StringIO.new("#{authorized_keys}\n"), '/tmp/pg_authorized_keys'
+              execute :sudo, 'mv', '/tmp/pg_authorized_keys', authorized_keys_path
+              execute :sudo, 'chown', "#{postgres_user}:#{postgres_user}", authorized_keys_path
+              execute :sudo, 'chmod', '600', authorized_keys_path
             end
 
-            peer_ips = all_hosts.reject { |h| h == host }.map { |h| config.replication_host_for(h) }
-            scan_cmd = "ssh-keyscan #{peer_ips.join(' ')} >> /var/lib/postgresql/.ssh/known_hosts 2>/dev/null || true"
-            execute :sudo, '-u', postgres_user, 'bash', '-c', scan_cmd
+            peer_ips = all_hosts.reject { |h| h == host }.map { |h| replication_hosts[h] }
+            known_hosts_path = '/var/lib/postgresql/.ssh/known_hosts'
+            existing_hosts = if test(:sudo, 'test', '-f', known_hosts_path)
+                               capture(:sudo, 'cat', known_hosts_path).lines.map(&:strip)
+                             else
+                               []
+                             end
+            scanned_hosts = capture(:sudo, '-u', postgres_user, 'ssh-keyscan', *peer_ips, raise_on_non_zero_exit: false)
+            known_hosts = (existing_hosts + scanned_hosts.lines.map(&:strip)).reject(&:empty?).uniq.join("\n")
+            unless known_hosts.empty?
+              upload! StringIO.new("#{known_hosts}\n"), '/tmp/pg_known_hosts'
+              execute :sudo, 'mv', '/tmp/pg_known_hosts', known_hosts_path
+              execute :sudo, 'chown', "#{postgres_user}:#{postgres_user}", known_hosts_path
+              execute :sudo, 'chmod', '600', known_hosts_path
+            end
           end
         end
       end
@@ -518,10 +536,21 @@ module ActivePostgres
           public_key = capture(:sudo, '-u', postgres_user, 'cat', "#{key_path}.pub").strip
 
           unless dns_servers.empty?
-            execute :sudo, '-u', postgres_user, 'touch', '/var/lib/postgresql/.ssh/known_hosts'
-            scan_cmd = "ssh-keyscan -H #{dns_servers.join(' ')} >> /var/lib/postgresql/.ssh/known_hosts 2>/dev/null || true"
-            execute :sudo, '-u', postgres_user, 'bash', '-c', scan_cmd
-            execute :sudo, '-u', postgres_user, 'chmod', '600', '/var/lib/postgresql/.ssh/known_hosts'
+            known_hosts_path = '/var/lib/postgresql/.ssh/known_hosts'
+            existing_hosts = if test(:sudo, 'test', '-f', known_hosts_path)
+                               capture(:sudo, 'cat', known_hosts_path).lines.map(&:strip)
+                             else
+                               []
+                             end
+            scanned_hosts = capture(:sudo, '-u', postgres_user, 'ssh-keyscan', '-H', *dns_servers,
+                                    raise_on_non_zero_exit: false)
+            known_hosts = (existing_hosts + scanned_hosts.lines.map(&:strip)).reject(&:empty?).uniq.join("\n")
+            unless known_hosts.empty?
+              upload! StringIO.new("#{known_hosts}\n"), '/tmp/pg_known_hosts'
+              execute :sudo, 'mv', '/tmp/pg_known_hosts', known_hosts_path
+              execute :sudo, 'chown', "#{postgres_user}:#{postgres_user}", known_hosts_path
+              execute :sudo, 'chmod', '600', known_hosts_path
+            end
           end
         end
 

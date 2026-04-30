@@ -1,3 +1,5 @@
+require 'erb'
+
 module ActivePostgres
   module Components
     class Base

@@ -17,13 +17,13 @@ REPMGR_DB=$(grep -oP "dbname=\K[^ ']+" "$REPMGR_CONF" | head -1)
 REPMGR_USER=$(grep -oP "user=\K[^ ']+" "$REPMGR_CONF" 2>/dev/null | head -1)
 REPMGR_USER="${REPMGR_USER:-repmgr}"
 
-cluster_data=$(psql -h /var/run/postgresql -d "$REPMGR_DB" -tAF',' -c "SELECT type, conninfo FROM repmgr.nodes WHERE active = true" 2>/dev/null || true)
+cluster_data=$(psql -h /var/run/postgresql -d "$REPMGR_DB" -tAF',' -c "SELECT type, conninfo FROM repmgr.nodes WHERE active = true ORDER BY node_id" 2>/dev/null || true)
 if [[ -z "$cluster_data" ]]; then
   exit 0
 fi
 
 primary_host=$(printf "%s\n" "$cluster_data" | awk -F',' '$1 == "primary" {print $2; exit}' | sed -n 's/.*host=\([^ ]*\).*/\1/p')
-standby_hosts=$(printf "%s\n" "$cluster_data" | awk -F',' '$1 == "standby" {print $2}' | sed -n 's/.*host=\([^ ]*\).*/\1/p' | sort -u)
+standby_hosts=$(printf "%s\n" "$cluster_data" | awk -F',' '$1 == "standby" {print $2; exit}' | sed -n 's/.*host=\([^ ]*\).*/\1/p')
 
 if [[ -z "$primary_host" ]]; then
   exit 0
