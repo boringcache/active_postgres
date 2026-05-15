@@ -883,8 +883,13 @@ module ActivePostgres
       def escape_pgpass_value(value)
         return '' if value.nil?
 
-        # Must escape backslashes first, then colons (order matters!)
-        value.to_s.gsub('\\', '\\\\\\\\').gsub(':', '\\:')
+        value.to_s.each_char.map do |char|
+          case char
+          when '\\' then '\\\\'
+          when ':' then '\\:'
+          else char
+          end
+        end.join
       end
 
       def build_primary_conninfo(standby_label)

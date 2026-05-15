@@ -47,8 +47,9 @@ module ActivePostgres
 
       resolve_all.each do |key, value|
         file_path = File.join(directory, key)
-        File.write(file_path, value)
-        File.chmod(0o600, file_path)
+        File.open(file_path, File::WRONLY | File::CREAT | File::TRUNC, 0o600) do |file|
+          file.write(value)
+        end
         puts "Cached #{key} to #{file_path}"
       end
 

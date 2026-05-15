@@ -127,24 +127,23 @@ module ActivePostgres
 
       # Identify error type from error message
       def identify_error_type(message)
-        case message.downcase
-        when /ssh|connection refused|network unreachable/
-          :ssh_connection
-        when /private network|vpn|wireguard network/
-          :private_network_connectivity
-        when /postgresql.*not.*start|cluster.*not.*running/
-          :postgresql_not_starting
-        when /repmgr.*clone|data directory/
-          :repmgr_clone_failed
-        when /repmgr.*register|unable to connect to.*primary/
-          :repmgr_register_failed
-        when /ssl|certificate|tls/
-          :ssl_certificate_error
-        when /no space|disk full/
-          :disk_space_error
-        when /authentication|password|pg_hba/
-          :authentication_failed
-        end
+        normalized = message.to_s.downcase
+
+        return :ssh_connection if contains_any?(normalized, 'ssh', 'connection refused', 'network unreachable')
+        return :private_network_connectivity if contains_any?(normalized, 'private network', 'vpn', 'wireguard network')
+        return :postgresql_not_starting if normalized.include?('postgresql') && normalized.include?('not') && normalized.include?('start')
+        return :postgresql_not_starting if normalized.include?('cluster') && normalized.include?('not') && normalized.include?('running')
+        return :repmgr_clone_failed if normalized.include?('repmgr') && normalized.include?('clone')
+        return :repmgr_clone_failed if normalized.include?('data directory')
+        return :repmgr_register_failed if normalized.include?('repmgr') && normalized.include?('register')
+        return :repmgr_register_failed if normalized.include?('unable to connect to') && normalized.include?('primary')
+        return :ssl_certificate_error if contains_any?(normalized, 'ssl', 'certificate', 'tls')
+        return :disk_space_error if contains_any?(normalized, 'no space', 'disk full')
+        return :authentication_failed if contains_any?(normalized, 'authentication', 'password', 'pg_hba')
+      end
+
+      def contains_any?(value, *needles)
+        needles.any? { |needle| value.include?(needle) }
       end
 
       # Show troubleshooting guide for a specific error type

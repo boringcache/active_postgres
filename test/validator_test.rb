@@ -92,8 +92,10 @@ class ValidatorTest < Minitest::Test
 
     validator.send(:validate_configuration)
 
-    assert(validator.warnings.any? { |w| w.include?('primary.example.com') })
-    assert(validator.warnings.any? { |w| w.include?('standby.example.com') })
+    assert_includes validator.warnings,
+                    "Primary is using 'primary.example.com' for replication traffic. Set private_ip for isolated networks."
+    assert_includes validator.warnings,
+                    'Standby standby.example.com is using its SSH host for replication. Provide private_ip if it differs.'
   end
 
   def test_validate_ssh_connectivity_checks_all_hosts
