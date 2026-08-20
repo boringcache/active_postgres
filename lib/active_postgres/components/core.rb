@@ -136,7 +136,7 @@ module ActivePostgres
       end
 
       def ensure_standby_compatible(pg_config)
-        primary_settings = get_primary_replication_settings
+        primary_settings = primary_replication_settings
         return pg_config if primary_settings.empty?
 
         adjustments = []
@@ -154,17 +154,24 @@ module ActivePostgres
         end
 
         if adjustments.any?
-          puts "  ⚠️  Adjusting standby settings to match primary minimum:"
+          puts '  ⚠️  Adjusting standby settings to match primary minimum:'
           adjustments.each { |adj| puts "      #{adj}" }
         end
 
         pg_config
       end
 
-      def get_primary_replication_settings
+      def primary_replication_settings
         @primary_replication_settings ||= begin
           settings = {}
-          sql = "SELECT name || '=' || setting FROM pg_settings WHERE name IN ('max_connections', 'max_worker_processes', 'max_wal_senders', 'max_prepared_transactions', 'max_locks_per_transaction')"
+          setting_names = %w[
+            max_connections
+            max_worker_processes
+            max_wal_senders
+            max_prepared_transactions
+            max_locks_per_transaction
+          ]
+          sql = "SELECT name || '=' || setting FROM pg_settings WHERE name IN (#{setting_names.map { |name| "'#{name}'" }.join(', ')})"
           result = ssh_executor.run_sql(config.primary_host, sql)
           result.strip.split("\n").each do |line|
             name, val = line.split('=')

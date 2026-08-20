@@ -63,7 +63,7 @@ class ExtensionsTest < Minitest::Test
       standby_hosts: ['standby.example.com'],
       version: 16,
       component_config: {
-        extensions: { enabled: true, list: ['pgvector', 'pg_trgm'] }
+        extensions: { enabled: true, list: %w[pgvector pg_trgm] }
       }
     )
 

@@ -215,11 +215,11 @@ module ActivePostgres
       execute_on_host(host) do
         backend = self
         result = executor.run_sql_on_backend(backend, sql,
-                                    postgres_user: postgres_user,
-                                    port: port,
-                                    database: database,
-                                    tuples_only: tuples_only,
-                                    capture: capture)
+                                             postgres_user: postgres_user,
+                                             port: port,
+                                             database: database,
+                                             tuples_only: tuples_only,
+                                             capture: capture)
       end
       result
     end

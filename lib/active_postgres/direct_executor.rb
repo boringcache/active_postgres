@@ -62,19 +62,13 @@ module ActivePostgres
       return nil if value.nil?
 
       # Handle Rails credentials
-      if value.start_with?('rails_credentials:')
-        return resolve_rails_credentials(value)
-      end
+      return resolve_rails_credentials(value) if value.start_with?('rails_credentials:')
 
       # Handle environment variables
-      if value.start_with?('$')
-        return ENV[value[1..]]
-      end
+      return ENV.fetch(value[1..], nil) if value.start_with?('$')
 
       # Handle shell commands
-      if value.start_with?('$(') && value.end_with?(')')
-        return `#{value[2..-2]}`.strip
-      end
+      return `#{value[2..-2]}`.strip if value.start_with?('$(') && value.end_with?(')')
 
       value
     end

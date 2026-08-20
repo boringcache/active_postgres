@@ -1,0 +1,38 @@
+version: 2
+updates:
+  - package-ecosystem: bundler
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:20"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 5
+    labels: [dependencies]
+    commit-message:
+      prefix: deps
+      include: scope
+    groups:
+      bundler-security:
+        applies-to: security-updates
+        patterns: ["*"]
+      bundler-minor-patch:
+        applies-to: version-updates
+        patterns: ["*"]
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:40"
+      timezone: "Etc/UTC"
+    labels: [dependencies]
+    commit-message:
+      prefix: deps
+      include: scope
+    groups:
+      actions-minor-patch:
+        patterns: ["*"]
+        update-types: [minor, patch]

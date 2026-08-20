@@ -1,9 +1,9 @@
 require 'simplecov'
 SimpleCov.start do
-  add_filter '/test/'
-  add_filter '/vendor/'
-  add_group 'Components', 'lib/active_postgres/components'
-  add_group 'Core', 'lib/active_postgres'
+  skip '/test/'
+  skip '/vendor/'
+  group 'Components', 'lib/active_postgres/components'
+  group 'Core', 'lib/active_postgres'
 end
 
 begin
@@ -15,6 +15,7 @@ end
 $LOAD_PATH.unshift(File.expand_path('../lib', __dir__))
 require 'active_postgres'
 require 'minitest/autorun'
+require 'minitest/mock'
 
 module TestHelpers
   class ConfigStub

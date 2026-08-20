@@ -1,6 +1,6 @@
 AllCops:
   NewCops: enable
-  TargetRubyVersion: 3.3
+  TargetRubyVersion: 4.0
   SuggestExtensions: false
   Exclude:
     - 'vendor/**/*'
@@ -14,11 +14,15 @@ Layout/LineLength:
 Metrics/MethodLength:
   Max: 35
   Exclude:
+    - 'lib/active_postgres/configuration.rb'
     - 'lib/active_postgres/components/repmgr.rb'
     - 'lib/active_postgres/connection_pooler.rb'
     - 'lib/active_postgres/generators/active_postgres/install_generator.rb'
     - 'lib/active_postgres/performance_tuner.rb'
     - 'lib/active_postgres/ssh_executor.rb'
+    - 'lib/active_postgres/health_checker.rb'
+    - 'lib/active_postgres/overview.rb'
+    - 'test/components/pgbouncer_test.rb'
 
 Metrics/ClassLength:
   Max: 250
@@ -26,6 +30,10 @@ Metrics/ClassLength:
     - 'lib/active_postgres/components/repmgr.rb'
     - 'lib/active_postgres/connection_pooler.rb'
     - 'lib/active_postgres/ssh_executor.rb'
+    - 'lib/active_postgres/components/pgbouncer.rb'
+    - 'lib/active_postgres/health_checker.rb'
+    - 'lib/active_postgres/overview.rb'
+    - 'test/components/pgbouncer_test.rb'
 
 Metrics/AbcSize:
   Max: 40
@@ -36,6 +44,10 @@ Metrics/AbcSize:
     - 'lib/active_postgres/performance_tuner.rb'
     - 'lib/active_postgres/ssh_executor.rb'
     - 'lib/active_postgres/validator.rb'
+    - 'lib/active_postgres/components/pgbouncer.rb'
+    - 'lib/active_postgres/configuration.rb'
+    - 'lib/active_postgres/health_checker.rb'
+    - 'lib/active_postgres/overview.rb'
 
 Metrics/CyclomaticComplexity:
   Max: 12
@@ -43,6 +55,11 @@ Metrics/CyclomaticComplexity:
     - 'lib/active_postgres/components/repmgr.rb'
     - 'lib/active_postgres/connection_pooler.rb'
     - 'lib/active_postgres/generators/active_postgres/install_generator.rb'
+    - 'lib/active_postgres/configuration.rb'
+    - 'lib/active_postgres/error_handler.rb'
+    - 'lib/active_postgres/health_checker.rb'
+    - 'lib/active_postgres/overview.rb'
+    - 'test/test_helper.rb'
 
 Metrics/PerceivedComplexity:
   Max: 12
@@ -50,12 +67,19 @@ Metrics/PerceivedComplexity:
     - 'lib/active_postgres/components/repmgr.rb'
     - 'lib/active_postgres/connection_pooler.rb'
     - 'lib/active_postgres/generators/active_postgres/install_generator.rb'
+    - 'lib/active_postgres/configuration.rb'
+    - 'lib/active_postgres/error_handler.rb'
+    - 'lib/active_postgres/health_checker.rb'
+    - 'lib/active_postgres/overview.rb'
+    - 'test/test_helper.rb'
 
 Metrics/BlockLength:
   Enabled: false
 
 Metrics/ParameterLists:
   Max: 6
+  Exclude:
+    - 'lib/active_postgres/ssh_executor.rb'
 
 Style/Documentation:
   Enabled: false
@@ -82,5 +106,14 @@ Lint/FormatParameterMismatch:
   Exclude:
     - 'lib/active_postgres/performance_tuner.rb'
 
-Gemspec/DevelopmentDependencies:
-  Enabled: false
+Naming/VariableNumber:
+  Exclude:
+    - 'test/components/pgbouncer_templates_test.rb'
+
+Style/TrivialAccessors:
+  Exclude:
+    - 'test/components/pgbouncer_test.rb'
+
+Style/CombinableLoops:
+  Exclude:
+    - 'lib/active_postgres/components/repmgr.rb'

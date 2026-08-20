@@ -125,11 +125,10 @@ module ActivePostgres
       # Validate required secrets if components are enabled
       raise Error, 'Missing replication_password secret' if component_enabled?(:repmgr) && !secrets_config['replication_password']
       raise Error, 'Missing monitoring_password secret' if component_enabled?(:monitoring) && !secrets_config['monitoring_password']
+
       if component_enabled?(:monitoring)
         grafana_config = component_config(:monitoring)[:grafana] || {}
-        if grafana_config[:enabled] && !secrets_config['grafana_admin_password']
-          raise Error, 'Missing grafana_admin_password secret'
-        end
+        raise Error, 'Missing grafana_admin_password secret' if grafana_config[:enabled] && !secrets_config['grafana_admin_password']
         if grafana_config[:enabled] && grafana_config[:host].to_s.strip.empty?
           raise Error, 'monitoring.grafana.host is required when grafana is enabled'
         end
@@ -150,27 +149,27 @@ module ActivePostgres
         end
       end
 
-        if component_enabled?(:repmgr)
-          dns_failover = component_config(:repmgr)[:dns_failover]
-          if dns_failover && dns_failover[:enabled]
-            domains = Array(dns_failover[:domains] || dns_failover[:domain]).map(&:to_s).map(&:strip).reject(&:empty?)
-            servers = Array(dns_failover[:dns_servers])
-            provider = (dns_failover[:provider] || 'dnsmasq').to_s.strip
+      if component_enabled?(:repmgr)
+        dns_failover = component_config(:repmgr)[:dns_failover]
+        if dns_failover && dns_failover[:enabled]
+          domains = Array(dns_failover[:domains] || dns_failover[:domain]).map(&:to_s).map(&:strip).reject(&:empty?)
+          servers = Array(dns_failover[:dns_servers])
+          provider = (dns_failover[:provider] || 'dnsmasq').to_s.strip
 
-            raise Error, 'dns_failover.domain or dns_failover.domains is required when enabled' if domains.empty?
-            raise Error, 'dns_failover.dns_servers is required when enabled' if servers.empty?
-            raise Error, "Unsupported dns_failover provider '#{provider}'" unless provider == 'dnsmasq'
+          raise Error, 'dns_failover.domain or dns_failover.domains is required when enabled' if domains.empty?
+          raise Error, 'dns_failover.dns_servers is required when enabled' if servers.empty?
+          raise Error, "Unsupported dns_failover provider '#{provider}'" unless provider == 'dnsmasq'
 
-            servers.each do |server|
-              next unless server.is_a?(Hash)
+          servers.each do |server|
+            next unless server.is_a?(Hash)
 
-              ssh_host = server['ssh_host'] || server[:ssh_host] || server['host'] || server[:host]
-              private_ip = server['private_ip'] || server[:private_ip] || server['ip'] || server[:ip]
-              raise Error, 'dns_failover.dns_servers entries must include host/ssh_host or private_ip' if
-                (ssh_host.nil? || ssh_host.to_s.strip.empty?) && (private_ip.nil? || private_ip.to_s.strip.empty?)
-            end
+            ssh_host = server['ssh_host'] || server[:ssh_host] || server['host'] || server[:host]
+            private_ip = server['private_ip'] || server[:private_ip] || server['ip'] || server[:ip]
+            raise Error, 'dns_failover.dns_servers entries must include host/ssh_host or private_ip' if
+              (ssh_host.nil? || ssh_host.to_s.strip.empty?) && (private_ip.nil? || private_ip.to_s.strip.empty?)
           end
         end
+      end
 
       true
     end

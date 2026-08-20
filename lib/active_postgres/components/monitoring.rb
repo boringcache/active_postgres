@@ -1,4 +1,4 @@
-require 'cgi'
+require 'cgi/escape'
 
 module ActivePostgres
   module Components
@@ -83,7 +83,7 @@ module ActivePostgres
         sql = build_monitoring_user_sql(monitoring_user, monitoring_password)
 
         ssh_executor.run_sql(config.primary_host, sql, postgres_user: 'postgres', port: 5432, tuples_only: false,
-                                                     capture: false)
+                                                       capture: false)
       end
 
       def build_monitoring_user_sql(user, password)

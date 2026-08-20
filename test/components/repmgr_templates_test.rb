@@ -99,7 +99,8 @@ class RepmgrTemplatesTest < Minitest::Test
   def test_conf_includes_ssh_options
     content = render_conf({}, host: 'primary.example.com')
 
-    assert_includes content, "ssh_options='-l postgres -i /var/lib/postgresql/.ssh/active_postgres_dns -o IdentitiesOnly=yes -o StrictHostKeyChecking=no'"
+    assert_includes content,
+                    "ssh_options='-l postgres -i /var/lib/postgresql/.ssh/active_postgres_dns -o IdentitiesOnly=yes -o StrictHostKeyChecking=no'"
   end
 
   def test_conf_includes_dns_failover_event_hook
@@ -290,7 +291,8 @@ class RepmgrTemplatesTest < Minitest::Test
     end
   end
 
-  def render_dns_script(primary_records:, replica_records:, dns_servers: ['10.0.0.50'], dns_user: 'ubuntu', dns_ssh_key_path: '/var/lib/postgresql/.ssh/active_postgres_dns', ssh_strict_host_key: 'accept-new')
+  def render_dns_script(primary_records:, replica_records:, dns_servers: ['10.0.0.50'], dns_user: 'ubuntu',
+                        dns_ssh_key_path: '/var/lib/postgresql/.ssh/active_postgres_dns', ssh_strict_host_key: 'accept-new')
     @component.instance_eval do
       _ = [dns_user, dns_servers, dns_ssh_key_path, ssh_strict_host_key, primary_records, replica_records]
       render_template('repmgr_dns_failover.sh.erb', binding)

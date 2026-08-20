@@ -287,39 +287,39 @@ namespace :postgres do
     puts "\nTip: set RAILS_ENV=production for production targets"
 
     puts "\nSetup & Maintenance"
-    puts "  rake postgres:setup                  # Deploy HA cluster (CLEAN=true for fresh install)"
-    puts "  rake postgres:purge                  # Destroy cluster (DESTRUCTIVE)"
-    puts "  rake postgres:setup:core             # PostgreSQL config (postgresql.conf, pg_hba.conf)"
-    puts "  rake postgres:setup:repmgr           # HA + failover (repmgr)"
-    puts "  rake postgres:setup:pgbouncer        # PgBouncer pooling"
-    puts "  rake postgres:setup:pgbackrest       # Backups (pgBackRest)"
-    puts "  rake postgres:setup:monitoring       # postgres_exporter"
-    puts "  rake postgres:setup:ssl              # SSL certs"
+    puts '  rake postgres:setup                  # Deploy HA cluster (CLEAN=true for fresh install)'
+    puts '  rake postgres:purge                  # Destroy cluster (DESTRUCTIVE)'
+    puts '  rake postgres:setup:core             # PostgreSQL config (postgresql.conf, pg_hba.conf)'
+    puts '  rake postgres:setup:repmgr           # HA + failover (repmgr)'
+    puts '  rake postgres:setup:pgbouncer        # PgBouncer pooling'
+    puts '  rake postgres:setup:pgbackrest       # Backups (pgBackRest)'
+    puts '  rake postgres:setup:monitoring       # postgres_exporter'
+    puts '  rake postgres:setup:ssl              # SSL certs'
 
     puts "\nStatus & Health"
-    puts "  rake postgres:status                 # Cluster status (SSH by default)"
-    puts "  rake postgres:overview               # Control tower overview"
-    puts "  rake postgres:nodes                  # Topology view"
-    puts "  rake postgres:verify                 # Comprehensive checklist"
-    puts "  ACTIVE_POSTGRES_STATUS_MODE=ssh|direct rake postgres:status"
+    puts '  rake postgres:status                 # Cluster status (SSH by default)'
+    puts '  rake postgres:overview               # Control tower overview'
+    puts '  rake postgres:nodes                  # Topology view'
+    puts '  rake postgres:verify                 # Comprehensive checklist'
+    puts '  ACTIVE_POSTGRES_STATUS_MODE=ssh|direct rake postgres:status'
 
     puts "\nBackups"
-    puts "  rake postgres:backup:full            # Full backup"
-    puts "  rake postgres:backup:incremental     # Incremental backup"
-    puts "  rake postgres:backup:list            # List backups"
-    puts "  rake postgres:backup:restore[ID]     # Restore backup set"
-    puts "  rake postgres:backup:restore_at[\"YYYY-MM-DD HH:MM:SS\",promote]  # PITR"
+    puts '  rake postgres:backup:full            # Full backup'
+    puts '  rake postgres:backup:incremental     # Incremental backup'
+    puts '  rake postgres:backup:list            # List backups'
+    puts '  rake postgres:backup:restore[ID]     # Restore backup set'
+    puts '  rake postgres:backup:restore_at["YYYY-MM-DD HH:MM:SS",promote]  # PITR'
 
     puts "\nMigrations"
-    puts "  rake postgres:migrate                # Run migrations on primary only"
+    puts '  rake postgres:migrate                # Run migrations on primary only'
 
     puts "\nPgBouncer"
-    puts "  rake postgres:pgbouncer:update_userlist[users]  # Update userlist"
-    puts "  rake postgres:pgbouncer:stats        # Service status + stats"
+    puts '  rake postgres:pgbouncer:update_userlist[users]  # Update userlist'
+    puts '  rake postgres:pgbouncer:stats        # Service status + stats'
 
     puts "\nTests"
-    puts "  rake postgres:test:replication[rows] # Replication stress test"
-    puts "  rake postgres:test:pgbouncer[connections]  # PgBouncer load test"
+    puts '  rake postgres:test:replication[rows] # Replication stress test'
+    puts '  rake postgres:test:pgbouncer[connections]  # PgBouncer load test'
 
     puts
   end
@@ -380,7 +380,7 @@ namespace :postgres do
     end
 
     desc 'Restore to a point in time (PITR)'
-    task :restore_at, [:target_time, :target_action] => :environment do |_t, args|
+    task :restore_at, %i[target_time target_action] => :environment do |_t, args|
       require 'active_postgres'
 
       unless args[:target_time]
@@ -607,8 +607,8 @@ namespace :postgres do
               nil
             end
             if cert_issuer
-              issuer_o = cert_issuer.match(/O\s*=\s*"?([^",\/]+)"?/)&.captures&.first
-              issuer_cn = cert_issuer.match(/CN\s*=\s*([^,\/]+)/)&.captures&.first
+              issuer_o = cert_issuer.match(%r{O\s*=\s*"?([^",/]+)"?})&.captures&.first
+              issuer_cn = cert_issuer.match(%r{CN\s*=\s*([^,/]+)})&.captures&.first
               issuer_name = issuer_o || issuer_cn || cert_issuer.sub('issuer=', '')
               info "   Issuer: #{issuer_name.strip}"
             end

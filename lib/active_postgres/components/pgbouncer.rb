@@ -81,9 +81,7 @@ module ActivePostgres
 
         follow_primary = follow_primary_for?(host, is_standby: is_standby, user_config: user_config)
 
-        if follow_primary && !config.component_enabled?(:repmgr)
-          raise Error, 'PgBouncer follow_primary requires repmgr to be enabled'
-        end
+        raise Error, 'PgBouncer follow_primary requires repmgr to be enabled' if follow_primary && !config.component_enabled?(:repmgr)
 
         max_connections = get_postgres_max_connections(host)
         optimal_pool = ConnectionPooler.calculate_optimal_pool_sizes(max_connections)
@@ -188,9 +186,9 @@ module ActivePostgres
         end
 
         ssl_chain = secrets.resolve('ssl_chain')
-        if ssl_chain
-          ssh_executor.upload_file(host, ssl_chain, '/etc/pgbouncer/ca.crt', mode: '644', owner: 'postgres:postgres')
-        end
+        return unless ssl_chain
+
+        ssh_executor.upload_file(host, ssl_chain, '/etc/pgbouncer/ca.crt', mode: '644', owner: 'postgres:postgres')
       end
 
       def setup_app_ssl_certs(host)
@@ -200,9 +198,7 @@ module ActivePostgres
         ssl_key = secrets.resolve('ssl_key')
         ssl_chain = secrets.resolve('ssl_chain')
 
-        unless ssl_cert && ssl_key
-          raise Error, 'PgBouncer app_hosts require ssl_cert and ssl_key secrets when ssl is enabled'
-        end
+        raise Error, 'PgBouncer app_hosts require ssl_cert and ssl_key secrets when ssl is enabled' unless ssl_cert && ssl_key
 
         full_cert = if ssl_chain
                       "#{ssl_cert.strip}\n#{ssl_chain.strip}\n"

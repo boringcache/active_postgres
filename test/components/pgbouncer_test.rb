@@ -173,7 +173,7 @@ class PgBouncerTest < Minitest::Test
     pgbouncer = ActivePostgres::Components::PgBouncer.new(config, ssh_executor, ActivePostgres::Secrets.new(config))
 
     installed_app_hosts = []
-    pgbouncer.define_singleton_method(:install_on_host) { |_host, is_standby:| }
+    pgbouncer.define_singleton_method(:install_on_host) { |*, **| nil }
     pgbouncer.define_singleton_method(:install_on_app_host) do |app_host|
       installed_app_hosts << app_host.fetch('host')
     end
@@ -202,13 +202,14 @@ class PgBouncerTest < Minitest::Test
 
     def pgbouncer.upload_template(host, template, _dest, binding_obj, **_opts)
       @captured_config ||= {}
-      @captured_config[host] = eval('pgbouncer_config', binding_obj) if template == 'pgbouncer.ini.erb'
+      @captured_config[host] = eval('pgbouncer_config', binding_obj, __FILE__, __LINE__) if template == 'pgbouncer.ini.erb'
     end
+
     def pgbouncer.install_apt_packages(*); end
     def pgbouncer.get_postgres_max_connections(*) = 100
     def pgbouncer.create_userlist_from_primary(*); end
     def pgbouncer.install_follow_dns_primary(*); end
-    def pgbouncer.captured_config; @captured_config; end
+    def pgbouncer.captured_config = @captured_config
 
     pgbouncer.send(:install_on_app_host, { 'host' => 'app.example.com' })
 
@@ -242,15 +243,16 @@ class PgBouncerTest < Minitest::Test
 
     pgbouncer = ActivePostgres::Components::PgBouncer.new(config, ssh_executor, secrets)
 
-    def pgbouncer.upload_template(host, template, dest, binding_obj, **opts)
+    def pgbouncer.upload_template(host, _template, _dest, binding_obj, **_opts)
       @captured_config ||= {}
-      @captured_config[host] = eval('pgbouncer_config', binding_obj)
+      @captured_config[host] = eval('pgbouncer_config', binding_obj, __FILE__, __LINE__)
     end
+
     def pgbouncer.get_postgres_max_connections(*) = 100
     def pgbouncer.create_userlist(*); end
     def pgbouncer.setup_ssl_certs(*); end
     def pgbouncer.install_follow_primary(*); end
-    def pgbouncer.captured_config; @captured_config; end
+    def pgbouncer.captured_config = @captured_config
 
     pgbouncer.send(:install_on_host, 'standby.example.com', is_standby: true)
 
@@ -282,15 +284,16 @@ class PgBouncerTest < Minitest::Test
 
     pgbouncer = ActivePostgres::Components::PgBouncer.new(config, ssh_executor, secrets)
 
-    def pgbouncer.upload_template(host, template, dest, binding_obj, **opts)
+    def pgbouncer.upload_template(host, _template, _dest, binding_obj, **_opts)
       @captured_config ||= {}
-      @captured_config[host] = eval('pgbouncer_config', binding_obj)
+      @captured_config[host] = eval('pgbouncer_config', binding_obj, __FILE__, __LINE__)
     end
+
     def pgbouncer.get_postgres_max_connections(*) = 100
     def pgbouncer.create_userlist(*); end
     def pgbouncer.setup_ssl_certs(*); end
     def pgbouncer.install_follow_primary(*); end
-    def pgbouncer.captured_config; @captured_config; end
+    def pgbouncer.captured_config = @captured_config
 
     pgbouncer.send(:install_on_host, 'standby.example.com', is_standby: true)
 
@@ -322,15 +325,16 @@ class PgBouncerTest < Minitest::Test
 
     pgbouncer = ActivePostgres::Components::PgBouncer.new(config, ssh_executor, secrets)
 
-    def pgbouncer.upload_template(host, template, dest, binding_obj, **opts)
+    def pgbouncer.upload_template(host, _template, _dest, binding_obj, **_opts)
       @captured_config ||= {}
-      @captured_config[host] = eval('pgbouncer_config', binding_obj)
+      @captured_config[host] = eval('pgbouncer_config', binding_obj, __FILE__, __LINE__)
     end
+
     def pgbouncer.get_postgres_max_connections(*) = 100
     def pgbouncer.create_userlist(*); end
     def pgbouncer.setup_ssl_certs(*); end
     def pgbouncer.install_follow_primary(*); end
-    def pgbouncer.captured_config; @captured_config; end
+    def pgbouncer.captured_config = @captured_config
 
     pgbouncer.send(:install_on_host, 'standby.example.com', is_standby: true)
 
@@ -360,15 +364,16 @@ class PgBouncerTest < Minitest::Test
 
     pgbouncer = ActivePostgres::Components::PgBouncer.new(config, ssh_executor, secrets)
 
-    def pgbouncer.upload_template(host, template, dest, binding_obj, **opts)
+    def pgbouncer.upload_template(host, _template, _dest, binding_obj, **_opts)
       @captured_config ||= {}
-      @captured_config[host] = eval('pgbouncer_config', binding_obj)
+      @captured_config[host] = eval('pgbouncer_config', binding_obj, __FILE__, __LINE__)
     end
+
     def pgbouncer.get_postgres_max_connections(*) = 100
     def pgbouncer.create_userlist(*); end
     def pgbouncer.setup_ssl_certs(*); end
     def pgbouncer.install_follow_primary(*); end
-    def pgbouncer.captured_config; @captured_config; end
+    def pgbouncer.captured_config = @captured_config
 
     pgbouncer.send(:install_on_host, 'primary.example.com', is_standby: false)
 
@@ -398,15 +403,16 @@ class PgBouncerTest < Minitest::Test
 
     pgbouncer = ActivePostgres::Components::PgBouncer.new(config, ssh_executor, secrets)
 
-    def pgbouncer.upload_template(host, template, dest, binding_obj, **opts)
+    def pgbouncer.upload_template(host, _template, _dest, binding_obj, **_opts)
       @captured_config ||= {}
-      @captured_config[host] = eval('pgbouncer_config', binding_obj)
+      @captured_config[host] = eval('pgbouncer_config', binding_obj, __FILE__, __LINE__)
     end
+
     def pgbouncer.get_postgres_max_connections(*) = 100
     def pgbouncer.create_userlist(*); end
     def pgbouncer.setup_ssl_certs(*); end
     def pgbouncer.install_follow_primary(*); end
-    def pgbouncer.captured_config; @captured_config; end
+    def pgbouncer.captured_config = @captured_config
 
     pgbouncer.send(:install_on_host, 'primary.example.com', is_standby: false)
 
@@ -439,15 +445,16 @@ class PgBouncerTest < Minitest::Test
 
     pgbouncer = ActivePostgres::Components::PgBouncer.new(config, ssh_executor, secrets)
 
-    def pgbouncer.upload_template(host, template, dest, binding_obj, **opts)
+    def pgbouncer.upload_template(host, _template, _dest, binding_obj, **_opts)
       @captured_config ||= {}
-      @captured_config[host] = eval('pgbouncer_config', binding_obj)
+      @captured_config[host] = eval('pgbouncer_config', binding_obj, __FILE__, __LINE__)
     end
+
     def pgbouncer.get_postgres_max_connections(*) = 100
     def pgbouncer.create_userlist(*); end
     def pgbouncer.setup_ssl_certs(*); end
     def pgbouncer.install_follow_primary(*); end
-    def pgbouncer.captured_config; @captured_config; end
+    def pgbouncer.captured_config = @captured_config
 
     pgbouncer.send(:install_on_host, 'primary.example.com', is_standby: false)
     pgbouncer.send(:install_on_host, 'replica-london.example.com', is_standby: true)
@@ -519,7 +526,7 @@ class PgBouncerTest < Minitest::Test
     pgbouncer = ActivePostgres::Components::PgBouncer.new(config, ssh_executor, secrets)
 
     captured_is_standby = nil
-    pgbouncer.define_singleton_method(:install_on_host) do |host, is_standby:|
+    pgbouncer.define_singleton_method(:install_on_host) do |_host, is_standby:|
       captured_is_standby = is_standby
     end
 
@@ -581,15 +588,16 @@ class PgBouncerTest < Minitest::Test
 
     pgbouncer = ActivePostgres::Components::PgBouncer.new(config, ssh_executor, secrets)
 
-    def pgbouncer.upload_template(host, template, dest, binding_obj, **opts)
+    def pgbouncer.upload_template(host, _template, _dest, binding_obj, **_opts)
       @captured_config ||= {}
-      @captured_config[host] = eval('pgbouncer_config', binding_obj)
+      @captured_config[host] = eval('pgbouncer_config', binding_obj, __FILE__, __LINE__)
     end
+
     def pgbouncer.get_postgres_max_connections(*) = 100
     def pgbouncer.create_userlist(*); end
     def pgbouncer.setup_ssl_certs(*); end
     def pgbouncer.install_follow_primary(*); end
-    def pgbouncer.captured_config; @captured_config; end
+    def pgbouncer.captured_config = @captured_config
 
     pgbouncer.send(:install_on_host, 'unknown-standby.example.com', is_standby: true)
 
@@ -621,15 +629,16 @@ class PgBouncerTest < Minitest::Test
 
     pgbouncer = ActivePostgres::Components::PgBouncer.new(config, ssh_executor, secrets)
 
-    def pgbouncer.upload_template(host, template, dest, binding_obj, **opts)
+    def pgbouncer.upload_template(host, _template, _dest, binding_obj, **_opts)
       @captured_config ||= {}
-      @captured_config[host] = eval('pgbouncer_config', binding_obj)
+      @captured_config[host] = eval('pgbouncer_config', binding_obj, __FILE__, __LINE__)
     end
+
     def pgbouncer.get_postgres_max_connections(*) = 100
     def pgbouncer.create_userlist(*); end
     def pgbouncer.setup_ssl_certs(*); end
     def pgbouncer.install_follow_primary(*); end
-    def pgbouncer.captured_config; @captured_config; end
+    def pgbouncer.captured_config = @captured_config
 
     pgbouncer.send(:install_on_host, 'primary.example.com', is_standby: false)
     pgbouncer.send(:install_on_host, 'standby.example.com', is_standby: true)

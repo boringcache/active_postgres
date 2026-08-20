@@ -33,10 +33,10 @@ class PgBackRestTest < Minitest::Test
     component = ActivePostgres::Components::PgBackRest.new(config, Object.new, secrets)
 
     schedules = component.send(:backup_schedules, {
-      schedule: '0 2 * * *',
-      schedule_full: '0 3 * * *',
-      schedule_incremental: '0 * * * *'
-    })
+                                 schedule: '0 2 * * *',
+                                 schedule_full: '0 3 * * *',
+                                 schedule_incremental: '0 * * * *'
+                               })
 
     full = schedules.find { |entry| entry[:type] == 'full' }
     incremental = schedules.find { |entry| entry[:type] == 'incr' }
@@ -60,9 +60,9 @@ class PgBackRestTest < Minitest::Test
     end
 
     component.send(:setup_backup_schedules, 'primary.example.com', {
-      schedule_full: '0 2 * * *',
-      schedule_incremental: '0 * * * *'
-    })
+                     schedule_full: '0 2 * * *',
+                     schedule_incremental: '0 * * * *'
+                   })
 
     assert_equal [:remove, 'primary.example.com'], calls.first
     assert_equal [:schedule, 'primary.example.com', '0 2 * * *', 'full', '/etc/cron.d/pgbackrest-backup'], calls[1]
@@ -79,8 +79,8 @@ class PgBackRestTest < Minitest::Test
 
     ssh_executor.expect(:upload_file, nil) do |_host, content, path, **_kwargs|
       assert_equal '/etc/cron.d/pgbackrest-backup-incremental', path
-      assert_includes content, "--type=incr backup"
-      refute_includes content, "--type=incremental"
+      assert_includes content, '--type=incr backup'
+      refute_includes content, '--type=incremental'
       assert_includes content, schedule
       true
     end

@@ -20,8 +20,8 @@ module ActivePostgres
     end
 
     def resolve_all
-      config.secrets_config.keys.each_with_object({}) do |key, result|
-        result[key] = resolve(key)
+      config.secrets_config.keys.to_h do |key|
+        [key, resolve(key)]
       end
     end
 
@@ -102,9 +102,7 @@ module ActivePostgres
 
       # Try loading just the Rails application (without full initialization)
       # This makes Rails.application available for credential access
-      if File.exist?('./config/application.rb')
-        require './config/application'
-      end
+      require './config/application' if File.exist?('./config/application.rb')
     rescue StandardError
       # Rails boot failed — CLI running outside a Rails project
       nil

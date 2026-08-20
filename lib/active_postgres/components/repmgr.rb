@@ -114,6 +114,7 @@ module ActivePostgres
         if replication_user == repmgr_user && replication_password != repmgr_password
           raise Error, 'replication_user matches repmgr user but passwords differ. Use a distinct replication_user or the same password.'
         end
+
         effective_replication_password = replication_user == repmgr_user ? repmgr_password : replication_password
 
         # Variables used in ERB templates via binding
@@ -174,13 +175,13 @@ module ActivePostgres
           info 'Creating repmgr database and user...'
           repmgr_sql = repmgr_component.send(:build_repmgr_setup_sql, repmgr_user, repmgr_db, repmgr_password)
           executor.run_sql_on_backend(self, repmgr_sql, postgres_user: 'postgres', port: 5432, tuples_only: false,
-                                           capture: false)
+                                                        capture: false)
 
           if replication_user != repmgr_user
             info 'Ensuring replication user exists...'
             repl_sql = repmgr_component.send(:build_replication_user_sql, replication_user, effective_replication_password)
             executor.run_sql_on_backend(self, repl_sql, postgres_user: 'postgres', port: 5432, tuples_only: false,
-                                             capture: false)
+                                                        capture: false)
           end
 
           info 'Reloading PostgreSQL configuration to apply pg_hba.conf changes...'
@@ -202,14 +203,14 @@ module ActivePostgres
           cluster_show = nil
           5.times do |attempt|
             cluster_show = capture(:sudo, '-u', 'postgres', 'bash', '-lc',
-                                   "repmgr cluster show -f /etc/repmgr.conf 2>&1", raise_on_non_zero_exit: false).to_s
+                                   'repmgr cluster show -f /etc/repmgr.conf 2>&1', raise_on_non_zero_exit: false).to_s
 
             break if cluster_show.match?(/primary/i)
 
             sleep 2 if attempt < 4
           end
 
-          unless cluster_show && cluster_show.match?(/primary/i)
+          unless cluster_show&.match?(/primary/i)
             # Fallback: verify via repmgr metadata in the repmgr database
             db_check = executor.run_sql_on_backend(self,
                                                    'SELECT type FROM repmgr.nodes WHERE node_id = 1;',
@@ -255,13 +256,14 @@ module ActivePostgres
         if replication_user == repmgr_user && replication_password != repmgr_password
           raise Error, 'replication_user matches repmgr user but passwords differ. Use a distinct replication_user or the same password.'
         end
+
         effective_replication_password = replication_user == repmgr_user ? repmgr_password : replication_password
 
         ensure_primary_registered
         ensure_primary_replication_ready(repmgr_password, effective_replication_password)
 
         setup_pgpass_file(standby_host, repmgr_password, replication_password: effective_replication_password,
-                                                      primary_ip: primary_replication_host)
+                                                         primary_ip: primary_replication_host)
 
         if standby_already_configured?(standby_host)
           puts '  Standby already configured, updating configs...'
@@ -418,7 +420,7 @@ module ActivePostgres
 
       def setup_inter_node_ssh
         dns_config = dns_failover_config
-        key_path = dns_config && dns_config[:ssh_key_path] || '/var/lib/postgresql/.ssh/active_postgres_dns'
+        key_path = (dns_config && dns_config[:ssh_key_path]) || '/var/lib/postgresql/.ssh/active_postgres_dns'
         postgres_user = config.postgres_user
         all_hosts = config.all_hosts
         replication_hosts = all_hosts.to_h { |host| [host, config.replication_host_for(host)] }
@@ -571,8 +573,8 @@ module ActivePostgres
 
             upload! StringIO.new("#{key}\n"), '/tmp/active_postgres_dns_key.pub'
             execute :bash, '-c',
-                    "grep -qxF -f /tmp/active_postgres_dns_key.pub ~/.ssh/authorized_keys || " \
-                    "cat /tmp/active_postgres_dns_key.pub >> ~/.ssh/authorized_keys"
+                    'grep -qxF -f /tmp/active_postgres_dns_key.pub ~/.ssh/authorized_keys || ' \
+                    'cat /tmp/active_postgres_dns_key.pub >> ~/.ssh/authorized_keys'
             execute :rm, '-f', '/tmp/active_postgres_dns_key.pub'
           end
         end
@@ -589,11 +591,11 @@ module ActivePostgres
 
         domains = normalize_dns_domains(dns_config)
         primary_records = normalize_dns_records(dns_config[:primary_records] || dns_config[:primary_record],
-                                               default_prefix: 'db-primary',
-                                               domains: domains)
+                                                default_prefix: 'db-primary',
+                                                domains: domains)
         replica_records = normalize_dns_records(dns_config[:replica_records] || dns_config[:replica_record],
-                                               default_prefix: 'db-replica',
-                                               domains: domains)
+                                                default_prefix: 'db-replica',
+                                                domains: domains)
 
         _ = primary_records
         _ = replica_records
@@ -761,10 +763,10 @@ module ActivePostgres
             # Check replication status
             begin
               rep_status = executor.run_sql_on_backend(self,
-                                                      'SELECT pg_is_in_recovery();',
-                                                      postgres_user: postgres_user,
-                                                      tuples_only: true,
-                                                      capture: true).to_s
+                                                       'SELECT pg_is_in_recovery();',
+                                                       postgres_user: postgres_user,
+                                                       tuples_only: true,
+                                                       capture: true).to_s
               if rep_status.include?('t')
                 info '✓ Standby is in recovery mode (receiving replication)'
               else
@@ -779,10 +781,10 @@ module ActivePostgres
             # Check lag
             begin
               lag_result = executor.run_sql_on_backend(self,
-                                                      'SELECT EXTRACT(EPOCH FROM (now() - pg_last_xact_replay_timestamp()))::int AS lag;',
-                                                      postgres_user: postgres_user,
-                                                      tuples_only: true,
-                                                      capture: true).to_s.strip
+                                                       'SELECT EXTRACT(EPOCH FROM (now() - pg_last_xact_replay_timestamp()))::int AS lag;',
+                                                       postgres_user: postgres_user,
+                                                       tuples_only: true,
+                                                       capture: true).to_s.strip
               info "Replication lag: #{lag_result}"
             rescue StandardError => e
               error "Failed to get replication lag: #{e.message}"
@@ -814,7 +816,7 @@ module ActivePostgres
         # Create .pgpass file for postgres user to avoid password exposure in logs
         # Format: hostname:port:database:username:password
         pgpass_content = build_pgpass_content(host, repmgr_password, replication_password: replication_password,
-                                                                   primary_ip: primary_ip)
+                                                                     primary_ip: primary_ip)
 
         ssh_executor.execute_on_host(host) do
           # Create .pgpass in postgres user's home directory
@@ -969,12 +971,12 @@ module ActivePostgres
         ssh_executor.execute_on_host(host) do
           repmgr_sql = repmgr_component.send(:build_repmgr_setup_sql, repmgr_user, repmgr_db, repmgr_password)
           executor.run_sql_on_backend(self, repmgr_sql, postgres_user: 'postgres', port: 5432, tuples_only: false,
-                                           capture: false)
+                                                        capture: false)
 
           if replication_user != repmgr_user
             repl_sql = repmgr_component.send(:build_replication_user_sql, replication_user, effective_replication_password)
             executor.run_sql_on_backend(self, repl_sql, postgres_user: 'postgres', port: 5432, tuples_only: false,
-                                             capture: false)
+                                                        capture: false)
           end
 
           info '✓ Primary replication user is ready'

@@ -1,6 +1,10 @@
 # active_postgres
 
-Production-grade PostgreSQL HA for Rails.
+PostgreSQL high-availability automation for Ruby and Rails applications.
+
+Active Postgres configures hosts you control over SSH. It is an operations tool,
+not a managed database service: you remain responsible for network isolation,
+capacity planning, monitoring, backups, recovery drills, and failover decisions.
 
 ## Features
 
@@ -272,11 +276,23 @@ User.all                     # → Replica
 
 ## Requirements
 
-- Ruby 3.0+
-- PostgreSQL 12+
+- Ruby 4.0+
+- A PostgreSQL version supported by the target Linux distribution
 - Ubuntu 20.04+ / Debian 11+ with systemd
 - SSH key-based authentication (hosts must be in `~/.ssh/known_hosts`)
-- Rails 6.0+ (optional)
+- Rails 8.1+ (optional)
+
+## Operational safety
+
+- Keep PostgreSQL, PgBouncer, exporters, and backup endpoints behind a private
+  network or narrowly scoped firewall rules.
+- Test promotion, application reconnection, backup restore, and point-in-time
+  recovery in a disposable environment before using them in production.
+- Review generated configuration and package changes before each rollout;
+  automatic failover cannot determine whether an application is safe to write
+  after a network partition.
+- Store database, replication, monitoring, and backup credentials in a secret
+  manager. Do not commit resolved values or generated configuration.
 
 ### SSH host key verification
 

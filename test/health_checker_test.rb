@@ -2,7 +2,7 @@ require 'test_helper'
 
 class HealthCheckerTest < Minitest::Test
   def setup
-    @original_mode = ENV['ACTIVE_POSTGRES_STATUS_MODE']
+    @original_mode = ENV.fetch('ACTIVE_POSTGRES_STATUS_MODE', nil)
   end
 
   def teardown

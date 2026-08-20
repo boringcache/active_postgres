@@ -139,7 +139,8 @@ module ActivePostgres
         return :repmgr_register_failed if normalized.include?('unable to connect to') && normalized.include?('primary')
         return :ssl_certificate_error if contains_any?(normalized, 'ssl', 'certificate', 'tls')
         return :disk_space_error if contains_any?(normalized, 'no space', 'disk full')
-        return :authentication_failed if contains_any?(normalized, 'authentication', 'password', 'pg_hba')
+
+        :authentication_failed if contains_any?(normalized, 'authentication', 'password', 'pg_hba')
       end
 
       def contains_any?(value, *needles)

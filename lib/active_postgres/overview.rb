@@ -61,14 +61,14 @@ module ActivePostgres
         label = config.node_label_for(host)
         stats = fetch_system_stats(host, paths)
         if stats.nil?
-          puts "  #{host}#{label ? " (#{label})" : ''}: unavailable"
+          puts "  #{host}#{" (#{label})" if label}: unavailable"
           next
         end
 
         mem_used_kb = stats[:mem_total_kb] - stats[:mem_avail_kb]
         mem_pct = stats[:mem_total_kb].positive? ? (mem_used_kb.to_f / stats[:mem_total_kb] * 100).round : 0
 
-        puts "  #{host}#{label ? " (#{label})" : ''}: load #{stats[:loadavg]} | cpu #{stats[:cpu]}% | " \
+        puts "  #{host}#{" (#{label})" if label}: load #{stats[:loadavg]} | cpu #{stats[:cpu]}% | " \
              "mem #{format_kb(mem_used_kb)}/#{format_kb(stats[:mem_total_kb])} (#{mem_pct}%)"
 
         stats[:disks].each do |disk|
@@ -227,7 +227,7 @@ module ActivePostgres
       with_timeout("system stats #{host}") do
         ssh_executor = executor
         safe_paths = paths.map { |p| Shellwords.escape(p) }.join(' ')
-        script = <<~'BASH'
+        script = <<~BASH
           set -e
           loadavg=$(cut -d' ' -f1-3 /proc/loadavg)
 
@@ -256,7 +256,7 @@ module ActivePostgres
 
         ssh_executor.execute_on_host(host) do
           output = capture(:bash, '-lc', "#{script}\n df -kP #{safe_paths} 2>/dev/null | tail -n +2 | " \
-                                        "awk '{print \"disk=\" $6 \"|\" $2 \"|\" $3 \"|\" $4 \"|\" $5}'",
+                                         "awk '{print \"disk=\" $6 \"|\" $2 \"|\" $3 \"|\" $4 \"|\" $5}'",
                            raise_on_non_zero_exit: false).to_s
         end
       end
@@ -299,12 +299,12 @@ module ActivePostgres
       stats
     end
 
-    def format_kb(kb)
-      kb = kb.to_f
-      gb = kb / 1024 / 1024
+    def format_kb(kilobytes)
+      kilobytes = kilobytes.to_f
+      gb = kilobytes / 1024 / 1024
       return format('%.1fG', gb) if gb >= 1
 
-      mb = kb / 1024
+      mb = kilobytes / 1024
       format('%.0fM', mb)
     end
 
@@ -342,8 +342,8 @@ module ActivePostgres
       value.positive? ? value : DEFAULT_TIMEOUT
     end
 
-    def with_timeout(label)
-      Timeout.timeout(overview_timeout) { yield }
+    def with_timeout(label, &)
+      Timeout.timeout(overview_timeout, &)
     rescue Timeout::Error
       raise StandardError, "#{label} timed out after #{overview_timeout}s"
     end

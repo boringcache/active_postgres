@@ -12,14 +12,6 @@ module ActivePostgres
       @executor
     end
 
-    private def create_executor
-      if use_ssh_executor?
-        SSHExecutor.new(config, quiet: true)
-      else
-        DirectExecutor.new(config, quiet: true)
-      end
-    end
-
     def use_ssh_executor?
       mode = ENV['ACTIVE_POSTGRES_STATUS_MODE'].to_s.strip.downcase
       return true if mode == 'ssh'
@@ -131,6 +123,14 @@ module ActivePostgres
 
     private
 
+    def create_executor
+      if use_ssh_executor?
+        SSHExecutor.new(config, quiet: true)
+      else
+        DirectExecutor.new(config, quiet: true)
+      end
+    end
+
     def collect_node_status
       nodes = []
 
@@ -184,9 +184,7 @@ module ActivePostgres
         lag: [3, nodes.map { |n| n[:lag].to_s.length }.max].max
       }
 
-      if config.component_enabled?(:pgbouncer)
-        cols[:pgbouncer] = [9, nodes.map { |n| n[:pgbouncer].to_s.length }.max].max
-      end
+      cols[:pgbouncer] = [9, nodes.map { |n| n[:pgbouncer].to_s.length }.max].max if config.component_enabled?(:pgbouncer)
 
       cols
     end
@@ -194,7 +192,7 @@ module ActivePostgres
     def print_table_header(cols)
       fmt = "%-#{cols[:role]}s  %-#{cols[:host]}s  %-#{cols[:private_ip]}s  " \
             "%-#{cols[:label]}s  %-#{cols[:status]}s  %#{cols[:conn]}s  %#{cols[:lag]}s"
-      headers = %w[Role Host Private\ IP Label Status Conn Lag]
+      headers = ['Role', 'Host', 'Private IP', 'Label', 'Status', 'Conn', 'Lag']
 
       if cols[:pgbouncer]
         fmt += "  %-#{cols[:pgbouncer]}s"

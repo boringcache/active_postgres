@@ -138,7 +138,7 @@ class RepmgrTest < Minitest::Test
 
   def test_normalize_dns_records_with_multiple_domains
     records = @component.send(:normalize_dns_records, nil, default_prefix: 'db-primary',
-                              domains: ['mesh.internal', 'mesh.v2.internal'])
+                                                           domains: ['mesh.internal', 'mesh.v2.internal'])
 
     assert_equal ['db-primary.mesh.internal', 'db-primary.mesh.v2.internal'], records
   end

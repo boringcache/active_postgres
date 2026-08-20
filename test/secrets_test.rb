@@ -92,8 +92,8 @@ class SecretsTest < Minitest::Test
   end
 
   def test_rails_credentials_resolution_sets_rails_environment_from_config
-    old_rails_env = ENV['RAILS_ENV']
-    old_boring_environment = ENV['BORING_ENVIRONMENT']
+    old_rails_env = ENV.fetch('RAILS_ENV', nil)
+    old_boring_environment = ENV.fetch('BORING_ENVIRONMENT', nil)
     ENV.delete('RAILS_ENV')
     ENV.delete('BORING_ENVIRONMENT')
 
@@ -104,8 +104,8 @@ class SecretsTest < Minitest::Test
     secrets = ActivePostgres::Secrets.new(config)
 
     assert_nil secrets.resolve('db_password')
-    assert_equal 'production', ENV['RAILS_ENV']
-    assert_equal 'production', ENV['BORING_ENVIRONMENT']
+    assert_equal 'production', ENV.fetch('RAILS_ENV', nil)
+    assert_equal 'production', ENV.fetch('BORING_ENVIRONMENT', nil)
   ensure
     ENV['RAILS_ENV'] = old_rails_env if old_rails_env
     ENV.delete('RAILS_ENV') unless old_rails_env
@@ -119,14 +119,14 @@ class SecretsTest < Minitest::Test
     secrets = ActivePostgres::Secrets.new(config)
 
     resolved = secrets.resolve_value({
-      'literal' => 'value',
-      'env' => '$NESTED_SECRET',
-      'array' => ['a', 'env:NESTED_SECRET']
-    })
+                                       'literal' => 'value',
+                                       'env' => '$NESTED_SECRET',
+                                       'array' => ['a', 'env:NESTED_SECRET']
+                                     })
 
     assert_equal 'value', resolved['literal']
     assert_equal 'nested', resolved['env']
-    assert_equal ['a', 'nested'], resolved['array']
+    assert_equal %w[a nested], resolved['array']
   ensure
     ENV.delete('NESTED_SECRET')
   end

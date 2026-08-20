@@ -3,9 +3,9 @@ require 'shellwords'
 module ActivePostgres
   module Components
     class PgBackRest < Base
-      LOG_ARCHIVE_CRON_FILE = '/etc/cron.d/postgres-log-archive'
-      LOG_ARCHIVE_ENV_FILE = '/etc/active-postgres-log-archive.env'
-      LOG_ARCHIVE_SCRIPT = '/usr/local/bin/active-postgres-archive-logs'
+      LOG_ARCHIVE_CRON_FILE = '/etc/cron.d/postgres-log-archive'.freeze
+      LOG_ARCHIVE_ENV_FILE = '/etc/active-postgres-log-archive.env'.freeze
+      LOG_ARCHIVE_SCRIPT = '/usr/local/bin/active-postgres-archive-logs'.freeze
 
       def install
         puts 'Installing pgBackRest for backups...'
@@ -135,9 +135,7 @@ module ActivePostgres
           execute :sudo, 'chown', "#{postgres_user}:#{postgres_user}", '/var/spool/pgbackrest'
 
           # Only create stanza on primary - standbys share the same backup repo
-          if create_stanza
-            execute :sudo, '-u', postgres_user, 'pgbackrest', '--stanza=main', 'stanza-create'
-          end
+          execute :sudo, '-u', postgres_user, 'pgbackrest', '--stanza=main', 'stanza-create' if create_stanza
         end
 
         if log_archive_enabled?(pgbackrest_config)
@@ -167,12 +165,8 @@ module ActivePostgres
         schedule_incremental = pgbackrest_config[:schedule_incremental]
 
         schedules = []
-        if schedule_full
-          schedules << { type: 'full', schedule: schedule_full, file: '/etc/cron.d/pgbackrest-backup' }
-        end
-        if schedule_incremental
-          schedules << { type: 'incr', schedule: schedule_incremental, file: '/etc/cron.d/pgbackrest-backup-incremental' }
-        end
+        schedules << { type: 'full', schedule: schedule_full, file: '/etc/cron.d/pgbackrest-backup' } if schedule_full
+        schedules << { type: 'incr', schedule: schedule_incremental, file: '/etc/cron.d/pgbackrest-backup-incremental' } if schedule_incremental
 
         schedules
       end
@@ -204,9 +198,7 @@ module ActivePostgres
 
       def setup_log_archive(host, pgbackrest_config)
         log_archive_config = pgbackrest_config[:log_archive] || {}
-        unless pgbackrest_config[:repo_type] == 's3'
-          raise Error, 'pgbackrest.log_archive requires pgbackrest.repo_type: s3'
-        end
+        raise Error, 'pgbackrest.log_archive requires pgbackrest.repo_type: s3' unless pgbackrest_config[:repo_type] == 's3'
 
         postgres_user = config.postgres_user
         env_content = log_archive_env(pgbackrest_config, log_archive_config, host)
@@ -260,13 +252,13 @@ module ActivePostgres
           'POSTGRES_LOG_ARCHIVE_NODE' => config.node_label_for(host) || host
         }.compact
 
-        env.map { |key, value| "#{key}=#{Shellwords.escape(value.to_s)}" }.join("\n") + "\n"
+        "#{env.map { |key, value| "#{key}=#{Shellwords.escape(value.to_s)}" }.join("\n")}\n"
       end
 
       def s3_endpoint_url(pgbackrest_config)
         endpoint = pgbackrest_config[:s3_endpoint]
         return nil if endpoint.to_s.empty?
-        return endpoint if endpoint.match?(/\Ahttps?:\/\//)
+        return endpoint if endpoint.match?(%r{\Ahttps?://})
 
         "https://#{endpoint}"
       end
