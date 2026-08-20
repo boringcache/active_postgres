@@ -7,6 +7,8 @@ and this project follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+## 0.9.6 - 2026-08-20
+
 ### Changed
 
 - Require Ruby 4.0 or newer and Rails 8.1 or newer for Rails integration.
