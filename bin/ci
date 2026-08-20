@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+bundle check
+bundle exec rake test
+bundle exec rubocop
+bundle exec bundle-audit check --update
+bundle exec rake build
