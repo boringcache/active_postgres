@@ -2,10 +2,11 @@ require 'test_helper'
 
 class StandbyDeploymentFlowTest < Minitest::Test
   class RollbackRecorder
-    attr_reader :action
+    attr_reader :action, :host
 
-    def register(*, &block)
+    def register(*, host: nil, &block)
       @action = block
+      @host = host
     end
   end
 
@@ -36,6 +37,7 @@ class StandbyDeploymentFlowTest < Minitest::Test
     rollback.action.call
 
     assert_equal ['standby.example.com'], removed
+    assert_nil rollback.host
   end
 
   private

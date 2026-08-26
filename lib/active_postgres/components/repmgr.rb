@@ -1,3 +1,5 @@
+require 'shellwords'
+
 module ActivePostgres
   module Components
     class Repmgr < Base
@@ -55,7 +57,7 @@ module ActivePostgres
       end
 
       def setup_standby_only(standby_host)
-        puts "Setting up standby #{standby_host} (primary will not be touched)..."
+        puts "Setting up standby #{standby_host} (primary stays online)..."
 
         version = config.version
         install_apt_packages(standby_host, "postgresql-#{version}-repmgr")
@@ -909,11 +911,17 @@ module ActivePostgres
       end
 
       def pgbackrest_restore_arguments(primary_conninfo)
+        command = Shellwords.join(
+          [
+            'pgbackrest', '--stanza=main', '--type=standby',
+            "--recovery-option=primary_conninfo=#{primary_conninfo}",
+            'restore'
+          ]
+        )
+
         [
           :sudo, '-u', config.postgres_user,
-          'pgbackrest', '--stanza=main', '--type=standby',
-          "--recovery-option=primary_conninfo=#{primary_conninfo}",
-          'restore'
+          :bash, '-lc', command
         ]
       end
 
