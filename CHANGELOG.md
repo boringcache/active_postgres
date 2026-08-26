@@ -13,6 +13,8 @@ and this project follows [Semantic Versioning](https://semver.org/).
 - Allow a standby to override repmgr failover and priority policy.
 - Allow a standby to be seeded from the latest valid pgBackRest backup.
 - Make deployment-flow `--dry-run` stop before confirmation or mutation.
+- Fail standby setup before mutation when required credentials do not resolve.
+- Scope standby rollback to the requested host and keep existing cluster nodes intact.
 
 ## 0.9.6 - 2026-08-20
 

@@ -81,6 +81,27 @@ class RepmgrTest < Minitest::Test
     ], commands
   end
 
+  def test_targeted_uninstall_does_not_visit_other_cluster_nodes
+    visited_hosts = []
+    commands = []
+    backend = Object.new
+    backend.define_singleton_method(:capture) { |*| '' }
+    backend.define_singleton_method(:info) { |_| nil }
+    backend.define_singleton_method(:execute) { |*args| commands << args }
+
+    executor = Object.new
+    executor.define_singleton_method(:execute_on_host) do |host, &block|
+      visited_hosts << host
+      backend.instance_exec(&block)
+    end
+
+    component = ActivePostgres::Components::Repmgr.new(@config, executor, @secrets)
+    component.uninstall_from('standby.example.com')
+
+    assert_equal ['standby.example.com'], visited_hosts
+    assert_equal [:sudo, 'apt-get', 'remove', '-y', '-q', 'postgresql-*-repmgr', '||', 'true'], commands.fetch(0)
+  end
+
   def test_normalize_dns_servers_handles_hash_and_string
     raw = [
       { 'host' => 'public.example.com', 'private_ip' => '10.0.0.10' },

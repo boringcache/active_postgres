@@ -21,9 +21,9 @@ module ActivePostgres
     def validate_specific_requirements
       abort "❌ #{standby_host} is not configured as a standby in config/postgres.yml" unless config.standby_hosts.include?(standby_host)
 
-      return if config.component_enabled?(:repmgr)
+      abort '❌ repmgr component must be enabled to setup standbys' unless config.component_enabled?(:repmgr)
 
-      abort '❌ repmgr component must be enabled to setup standbys'
+      validate_required_secrets!
     end
 
     def run_preflight_checks
@@ -120,10 +120,33 @@ module ActivePostgres
 
     def register_rollback(component_name, component)
       rollback_manager.register("Uninstall #{component_name} on #{standby_host}", host: standby_host) do
-        component.uninstall
+        if component.respond_to?(:uninstall_from)
+          component.uninstall_from(standby_host)
+        else
+          component.uninstall
+        end
       rescue StandardError => e
         logger.warn "Failed to uninstall #{component_name} on #{standby_host}: #{e.message}"
       end
+    end
+
+    def validate_required_secrets!
+      required = %w[repmgr_password replication_password]
+      required.push('ssl_cert', 'ssl_key') if config.component_enabled?(:ssl)
+      required << 'monitoring_password' if config.component_enabled?(:monitoring)
+
+      if config.component_enabled?(:pgbackrest)
+        pgbackrest = secrets.resolve_value(config.component_config(:pgbackrest))
+        if pgbackrest[:repo_type] == 's3'
+          required.push('s3_access_key', 's3_secret_key')
+          raise Error, 'pgbackrest.s3_bucket did not resolve' if pgbackrest[:s3_bucket].to_s.empty?
+        end
+      end
+
+      missing = required.uniq.select { |key| secrets.resolve(key).to_s.empty? }
+      return if missing.empty?
+
+      raise Error, "Required standby secrets did not resolve: #{missing.join(', ')}"
     end
 
     def list_next_steps
