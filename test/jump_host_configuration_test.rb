@@ -48,6 +48,43 @@ class JumpHostConfigurationTest < Minitest::Test
     assert_equal 0, policy.fetch(:priority)
   end
 
+  def test_standby_can_be_seeded_from_pgbackrest
+    config = build_config(
+      'components' => { 'pgbackrest' => { 'enabled' => true } },
+      'standby' => [
+        { 'host' => 'standby.example.com', 'seed_method' => 'pgbackrest' }
+      ]
+    )
+
+    config.validate!
+
+    assert_equal :pgbackrest, config.standby_seed_method_for('standby.example.com')
+  end
+
+  def test_pgbackrest_seed_requires_the_component
+    config = build_config(
+      'standby' => [
+        { 'host' => 'standby.example.com', 'seed_method' => 'pgbackrest' }
+      ]
+    )
+
+    error = assert_raises(ActivePostgres::Error) { config.validate! }
+
+    assert_match(/requires the pgbackrest component/, error.message)
+  end
+
+  def test_unknown_seed_method_fails_validation
+    config = build_config(
+      'standby' => [
+        { 'host' => 'standby.example.com', 'seed_method' => 'snapshot' }
+      ]
+    )
+
+    error = assert_raises(ActivePostgres::Error) { config.validate! }
+
+    assert_match(/Invalid seed_method 'snapshot'/, error.message)
+  end
+
   private
 
   def build_config(overrides)

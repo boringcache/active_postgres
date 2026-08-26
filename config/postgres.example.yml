@@ -281,6 +281,7 @@ production:
       private_ip: 10.8.0.102 # Optional: Private IP for replication
       label: eu-west-1
       # jump_host: app-oci
+      # seed_method: pgbackrest # Restore latest backup instead of cloning from primary
       # Keep a cross-provider DR standby out of automatic promotion elections.
       # repmgr:
       #   auto_failover: false

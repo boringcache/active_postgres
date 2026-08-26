@@ -1,7 +1,10 @@
 require 'yaml'
+require_relative 'configuration/standby_policy'
 
 module ActivePostgres
   class Configuration
+    include StandbyPolicy
+
     attr_reader :environment, :version, :user, :ssh_key, :ssh_known_hosts_file, :ssh_host_key_verification,
                 :primary, :standbys, :jump_hosts, :components, :secrets_config, :database_config
 
@@ -177,6 +180,8 @@ module ActivePostgres
         raise Error, "Host #{host} jump_host not found: #{jump_host_name}" unless jump_host
         raise Error, "Jump host #{jump_host_name} must include host" if jump_host['host'].to_s.strip.empty?
       end
+
+      validate_standby_seed_methods!
 
       if component_enabled?(:repmgr)
         dns_failover = component_config(:repmgr)[:dns_failover]

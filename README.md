@@ -51,6 +51,7 @@ production:
     - host: 100.63.4.227
       private_ip: 10.8.0.12
       jump_host: app-oci
+      seed_method: pgbackrest
       repmgr:
         auto_failover: false
         priority: 0
@@ -71,6 +72,9 @@ production:
 connection through a declared host. A standby-level `repmgr` block overrides
 the cluster defaults, so a cross-provider disaster-recovery replica can remain
 manual-promotion while the ordinary standby retains automatic failover.
+`seed_method: pgbackrest` restores the latest valid backup with standby recovery
+settings before repmgr registration, avoiding a full base-backup stream from
+the primary. The `pgbackrest` component must be enabled.
 
 Add credentials (`rails credentials:edit`):
 
