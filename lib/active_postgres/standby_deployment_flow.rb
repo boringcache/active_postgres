@@ -49,17 +49,22 @@ module ActivePostgres
 
     def list_deployment_steps
       logger.info "  • Install PostgreSQL #{config.version} packages on #{standby_host}"
-      logger.info "  • Clone data from primary: #{config.primary_host}"
+      if config.standby_seed_method_for(standby_host) == :pgbackrest
+        logger.info '  • Restore the latest valid pgBackRest backup as a standby'
+      else
+        logger.info "  • Clone data from primary: #{config.primary_host}"
+      end
       logger.info '  • Register standby with repmgr cluster'
     end
 
     def list_warnings
-      logger.info "\n⚠️  Primary database will NOT be touched"
+      logger.info "\n⚠️  Primary stays online; setup performs idempotent role and repmgr checks"
     end
 
     def deploy_components
       deploy_ssl if config.component_enabled?(:ssl)
       deploy_core
+      deploy_pgbackrest if config.component_enabled?(:pgbackrest)
       deploy_repmgr
       deploy_optional_components
     end
@@ -79,8 +84,15 @@ module ActivePostgres
       end
     end
 
+    def deploy_pgbackrest
+      logger.task('Installing pgBackRest on standby') do
+        component = Components::PgBackRest.new(config, ssh_executor, secrets)
+        component.install_on_standby(standby_host)
+      end
+    end
+
     def deploy_repmgr
-      logger.task('Setting up repmgr and cloning from primary') do
+      logger.task('Setting up repmgr and seeding standby') do
         component = Components::Repmgr.new(config, ssh_executor, secrets)
         register_rollback('repmgr', component)
         component.setup_standby_only(standby_host)

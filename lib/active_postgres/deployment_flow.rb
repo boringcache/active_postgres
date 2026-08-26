@@ -13,12 +13,16 @@ module ActivePostgres
       @skip_validation = skip_validation
     end
 
-    def execute
+    def execute(dry_run: false)
       ErrorHandler.with_handling(context: { operation: operation_name }) do
         print_header
         validate_prerequisites
         run_preflight_checks unless skip_validation
         print_deployment_plan
+        if dry_run
+          logger.info "\n[DRY RUN] No changes made."
+          return
+        end
         return unless confirm_deployment
 
         rollback_manager.with_rollback(description: operation_name) do

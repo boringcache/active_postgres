@@ -106,6 +106,10 @@ module TestHelpers
       component_config(:repmgr).merge(overrides.transform_keys(&:to_sym))
     end
 
+    def standby_seed_method_for(host)
+      (standby_config_for(host)&.fetch('seed_method', nil) || 'repmgr').to_s.to_sym
+    end
+
     def node_label_for(host)
       if host == primary_host
         primary['label']

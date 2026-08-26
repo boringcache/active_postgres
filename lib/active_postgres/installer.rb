@@ -28,7 +28,7 @@ module ActivePostgres
         rollback_manager: rollback_manager,
         skip_validation: skip_validation
       )
-      flow.execute
+      flow.execute(dry_run: dry_run)
     end
 
     def setup_component(component_name)
@@ -117,7 +117,7 @@ module ActivePostgres
         rollback_manager: rollback_manager,
         skip_validation: skip_validation
       )
-      flow.execute
+      flow.execute(dry_run: dry_run)
     end
   end
 end

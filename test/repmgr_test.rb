@@ -49,6 +49,18 @@ class RepmgrTest < Minitest::Test
     assert_equal 'host=10.0.0.10 user=repl_user dbname=replication application_name=standby-node', conninfo
   end
 
+  def test_pgbackrest_restore_uses_standby_mode_and_primary_conninfo
+    conninfo = 'host=10.0.0.10 user=replication dbname=replication application_name=aws-standby'
+    arguments = @component.send(:pgbackrest_restore_arguments, conninfo)
+
+    assert_equal [
+      :sudo, '-u', 'postgres',
+      'pgbackrest', '--stanza=main', '--type=standby',
+      "--recovery-option=primary_conninfo=#{conninfo}",
+      'restore'
+    ], arguments
+  end
+
   def test_manual_failover_policy_disables_repmgrd
     commands = []
     backend = Object.new

@@ -244,6 +244,7 @@ module ActivePostgres
         repmgr_db = config.repmgr_database
         postgres_user = config.postgres_user
         replication_user = config.replication_user
+        seed_method = config.standby_seed_method_for(standby_host)
 
         # Variables used in ERB templates via binding
         _ = host
@@ -300,58 +301,63 @@ module ActivePostgres
             nil
           end
 
-          info 'Cloning from primary over private network...'
-          # Create a temporary repmgr config for cloning that points to the primary
-          # The regular config points to localhost which doesn't work during initial clone
-          temp_repmgr_conf = <<~CONF
-            node_id=#{node_id}
-            node_name='#{standby_host}'
-            conninfo='host=#{primary_replication_host} user=#{repmgr_user} dbname=#{repmgr_db} connect_timeout=10'
-            data_directory='/var/lib/postgresql/#{version}/main'
-          CONF
+          if seed_method == :repmgr
+            info 'Cloning from primary over private network...'
+            # Create a temporary repmgr config for cloning that points to the primary.
+            # The regular config points to localhost, which does not work during the initial clone.
+            temp_repmgr_conf = <<~CONF
+              node_id=#{node_id}
+              node_name='#{standby_host}'
+              conninfo='host=#{primary_replication_host} user=#{repmgr_user} dbname=#{repmgr_db} connect_timeout=10'
+              data_directory='/var/lib/postgresql/#{version}/main'
+            CONF
 
-          info 'Creating temporary repmgr config for cloning...'
-          upload! StringIO.new(temp_repmgr_conf), '/tmp/repmgr_clone.conf'
-          execute :sudo, 'mv', '/tmp/repmgr_clone.conf', '/etc/repmgr_clone.conf'
-          execute :sudo, 'chown', 'postgres:postgres', '/etc/repmgr_clone.conf'
-          execute :sudo, 'chmod', '600', '/etc/repmgr_clone.conf'
-
-          info 'Running: repmgr standby clone (this may take a few minutes to copy the database)...'
+            info 'Creating temporary repmgr config for cloning...'
+            upload! StringIO.new(temp_repmgr_conf), '/tmp/repmgr_clone.conf'
+            execute :sudo, 'mv', '/tmp/repmgr_clone.conf', '/etc/repmgr_clone.conf'
+            execute :sudo, 'chown', 'postgres:postgres', '/etc/repmgr_clone.conf'
+            execute :sudo, 'chmod', '600', '/etc/repmgr_clone.conf'
+            info 'Running: repmgr standby clone (this may take a few minutes to copy the database)...'
+          else
+            info 'Restoring the latest valid pgBackRest backup as a standby...'
+          end
 
           clone_success = false
           begin
-            execute :sudo, '-u', postgres_user, 'env',
-                    'HOME=/var/lib/postgresql',
-                    'repmgr', 'standby', 'clone',
-                    '-h', primary_replication_host,
-                    '-U', repmgr_user,
-                    '-d', repmgr_db,
-                    '-f', '/etc/repmgr_clone.conf',
-                    '--force',
-                    '--verbose'
+            if seed_method == :pgbackrest
+              standby_label = config.node_label_for(standby_host) || "standby-#{standby_host.split('.').first}"
+              primary_conninfo = build_primary_conninfo(standby_label)
+              execute(*pgbackrest_restore_arguments(primary_conninfo))
+              info 'pgBackRest standby restore completed'
+            else
+              execute :sudo, '-u', postgres_user, 'env',
+                      'HOME=/var/lib/postgresql',
+                      'repmgr', 'standby', 'clone',
+                      '-h', primary_replication_host,
+                      '-U', repmgr_user,
+                      '-d', repmgr_db,
+                      '-f', '/etc/repmgr_clone.conf',
+                      '--force',
+                      '--verbose'
+              info 'Clone command completed'
+            end
 
-            info 'Clone command completed'
-
-            # Check if clone actually succeeded
             if test(:sudo, 'test', '-d', "/var/lib/postgresql/#{version}/main")
               clone_success = true
-              info 'Data directory successfully cloned!'
-
-              # Clean up temporary clone config
-              execute :sudo, 'rm', '-f', '/etc/repmgr_clone.conf'
+              info 'Standby data directory successfully seeded!'
+              execute :sudo, 'rm', '-f', '/etc/repmgr_clone.conf' if seed_method == :repmgr
             else
-              error "Data directory /var/lib/postgresql/#{version}/main was not created even though command succeeded!"
+              error "Data directory /var/lib/postgresql/#{version}/main was not created even though seeding succeeded!"
             end
           rescue SSHKit::Command::Failed => e
-            error "Clone command failed with exit code #{e.message}"
+            error "Standby seed command failed with exit code #{e.message}"
           rescue StandardError => e
-            error "Clone command raised exception: #{e.class}: #{e.message}"
+            error "Standby seed command raised exception: #{e.class}: #{e.message}"
           end
 
-          # If clone failed, raise error
           unless clone_success
-            error '✗ repmgr standby clone failed'
-            raise 'repmgr standby clone failed to create data directory'
+            error '✗ Standby data seeding failed'
+            raise 'standby data seeding failed to create data directory'
           end
         end
 
@@ -905,6 +911,15 @@ module ActivePostgres
         user = replication_password && !replication_password.empty? ? replication_user : repmgr_user
         dbname = replication_password && !replication_password.empty? ? 'replication' : repmgr_db
         "host=#{primary_host} user=#{user} dbname=#{dbname} application_name=#{standby_label}"
+      end
+
+      def pgbackrest_restore_arguments(primary_conninfo)
+        [
+          :sudo, '-u', config.postgres_user,
+          'pgbackrest', '--stanza=main', '--type=standby',
+          "--recovery-option=primary_conninfo=#{primary_conninfo}",
+          'restore'
+        ]
       end
 
       def normalize_repmgr_password(raw_password)
