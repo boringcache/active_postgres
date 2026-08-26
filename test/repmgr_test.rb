@@ -78,7 +78,8 @@ class RepmgrTest < Minitest::Test
     component.send(:enable_repmgrd_if_configured, 'standby.example.com', auto_failover: false)
 
     assert_equal [
-      [[:sudo, 'systemctl', 'disable', '--now', 'repmgrd'], { raise_on_non_zero_exit: false }]
+      [[:sudo, 'systemctl', 'stop', 'repmgrd'], { raise_on_non_zero_exit: false }],
+      [[:sudo, 'systemctl', 'disable', 'repmgrd'], { raise_on_non_zero_exit: false }]
     ], commands
   end
 
