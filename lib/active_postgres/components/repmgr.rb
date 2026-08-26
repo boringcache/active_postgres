@@ -22,31 +22,24 @@ module ActivePostgres
       def uninstall
         puts 'Uninstalling repmgr...'
 
-        config.all_hosts.each do |host|
-          is_primary = host == config.primary_host
-          node_id = if is_primary
-                      1
-                    else
-                      begin
-                        config.standby_hosts.index(host) + 2
-                      rescue StandardError
-                        999
-                      end
-                    end
+        config.all_hosts.each { |host| uninstall_from(host) }
+      end
 
-          ssh_executor.execute_on_host(host) do
-            cluster_output = begin
-              capture(:sudo, '-u', 'postgres', 'repmgr', 'cluster', 'show')
-            rescue StandardError
-              ''
-            end
+      def uninstall_from(host)
+        node_id = host == config.primary_host ? 1 : (config.standby_hosts.index(host) || 997) + 2
 
-            if cluster_output.include?("| #{node_id}") && cluster_output.include?('running')
-              info "✓ Skipping repmgr removal from #{host} - node #{node_id} is running"
-            else
-              info "Removing repmgr from #{host}"
-              execute :sudo, 'apt-get', 'remove', '-y', '-q', 'postgresql-*-repmgr', '||', 'true'
-            end
+        ssh_executor.execute_on_host(host) do
+          cluster_output = begin
+            capture(:sudo, '-u', 'postgres', 'repmgr', 'cluster', 'show')
+          rescue StandardError
+            ''
+          end
+
+          if cluster_output.include?("| #{node_id}") && cluster_output.include?('running')
+            info "✓ Skipping repmgr removal from #{host} - node #{node_id} is running"
+          else
+            info "Removing repmgr from #{host}"
+            execute :sudo, 'apt-get', 'remove', '-y', '-q', 'postgresql-*-repmgr', '||', 'true'
           end
         end
       end
@@ -245,6 +238,10 @@ module ActivePostgres
         postgres_user = config.postgres_user
         replication_user = config.replication_user
         seed_method = config.standby_seed_method_for(standby_host)
+        restore_arguments = if seed_method == :pgbackrest
+                              standby_label = config.node_label_for(standby_host) || "standby-#{standby_host.split('.').first}"
+                              pgbackrest_restore_arguments(build_primary_conninfo(standby_label))
+                            end
 
         # Variables used in ERB templates via binding
         _ = host
@@ -325,9 +322,7 @@ module ActivePostgres
           clone_success = false
           begin
             if seed_method == :pgbackrest
-              standby_label = config.node_label_for(standby_host) || "standby-#{standby_host.split('.').first}"
-              primary_conninfo = build_primary_conninfo(standby_label)
-              execute(*pgbackrest_restore_arguments(primary_conninfo))
+              execute(*restore_arguments)
               info 'pgBackRest standby restore completed'
             else
               execute :sudo, '-u', postgres_user, 'env',
