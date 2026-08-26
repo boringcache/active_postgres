@@ -35,6 +35,11 @@ production:
   version: 18
   user: ubuntu
   ssh_key: ~/.ssh/id_rsa
+  ssh_known_hosts_file: config/ssh_known_hosts
+
+  jump_hosts:
+    app-oci:
+      host: 129.213.194.40
 
   primary:
     host: 34.12.234.81        # Public IP for SSH
@@ -43,6 +48,12 @@ production:
   standby:
     - host: 52.23.45.67
       private_ip: 10.8.0.11
+    - host: 100.63.4.227
+      private_ip: 10.8.0.12
+      jump_host: app-oci
+      repmgr:
+        auto_failover: false
+        priority: 0
 
   components:
     repmgr: {enabled: true}
@@ -55,6 +66,11 @@ production:
     monitoring_password: $POSTGRES_MONITORING_PASSWORD
     app_password: $POSTGRES_APP_PASSWORD
 ```
+
+`jump_host` keeps the operator SSH key on the workstation and proxies the
+connection through a declared host. A standby-level `repmgr` block overrides
+the cluster defaults, so a cross-provider disaster-recovery replica can remain
+manual-promotion while the ordinary standby retains automatic failover.
 
 Add credentials (`rails credentials:edit`):
 

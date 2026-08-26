@@ -103,7 +103,7 @@ module ActivePostgres
         puts '  Setting up primary with repmgr...'
 
         host = config.primary_host
-        repmgr_config = config.component_config(:repmgr)
+        repmgr_config = config.repmgr_config_for(host)
         version = config.version
         repmgr_password = normalize_repmgr_password(secrets.resolve('repmgr_password'))
         replication_password = normalize_replication_password(secrets.resolve('replication_password'))
@@ -236,7 +236,7 @@ module ActivePostgres
         puts "  Setting up standby: #{standby_host}..."
 
         host = standby_host
-        repmgr_config = config.component_config(:repmgr)
+        repmgr_config = config.repmgr_config_for(standby_host)
         primary_replication_host = config.primary_replication_host
         version = config.version
         secrets_obj = secrets
@@ -1101,7 +1101,12 @@ module ActivePostgres
       end
 
       def enable_repmgrd_if_configured(host, repmgr_config)
-        return if repmgr_config[:auto_failover] == false
+        if repmgr_config[:auto_failover] == false
+          ssh_executor.execute_on_host(host) do
+            execute :sudo, 'systemctl', 'disable', '--now', 'repmgrd', raise_on_non_zero_exit: false
+          end
+          return
+        end
 
         default_config = <<~CONF
           REPMGRD_ENABLED=yes

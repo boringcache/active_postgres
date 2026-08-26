@@ -20,7 +20,7 @@ require 'minitest/mock'
 module TestHelpers
   class ConfigStub
     attr_accessor :primary_host, :standby_hosts, :version, :primary, :standbys, :environment, :secrets_config, :ssh_key,
-                  :ssh_host_key_verification, :user, :postgres_user, :pgbouncer_user, :app_user, :app_database,
+                  :ssh_known_hosts_file, :ssh_host_key_verification, :user, :postgres_user, :pgbouncer_user, :app_user, :app_database,
                   :repmgr_user, :repmgr_database, :replication_user
 
     def initialize(attrs = {})
@@ -32,6 +32,7 @@ module TestHelpers
       @environment = attrs[:environment] || 'test'
       @secrets_config = attrs[:secrets_config] || {}
       @ssh_key = attrs[:ssh_key] || '~/.ssh/id_rsa'
+      @ssh_known_hosts_file = attrs[:ssh_known_hosts_file]
       @ssh_host_key_verification = attrs[:ssh_host_key_verification] || :always
       @user = attrs[:user] || 'ubuntu'
       @postgres_user = attrs[:postgres_user] || 'postgres'
@@ -94,6 +95,15 @@ module TestHelpers
 
     def standby_config_for(host)
       standbys.find { |s| s['host'] == host }
+    end
+
+    def repmgr_config_for(host)
+      overrides = if host == primary_host
+                    primary&.fetch('repmgr', {})
+                  else
+                    standby_config_for(host)&.fetch('repmgr', {})
+                  end
+      component_config(:repmgr).merge(overrides.transform_keys(&:to_sym))
     end
 
     def node_label_for(host)

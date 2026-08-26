@@ -2,8 +2,8 @@ require 'yaml'
 
 module ActivePostgres
   class Configuration
-    attr_reader :environment, :version, :user, :ssh_key, :ssh_host_key_verification, :primary, :standbys, :components, :secrets_config,
-                :database_config
+    attr_reader :environment, :version, :user, :ssh_key, :ssh_known_hosts_file, :ssh_host_key_verification,
+                :primary, :standbys, :jump_hosts, :components, :secrets_config, :database_config
 
     def initialize(config_hash, environment = 'development')
       @environment = environment
@@ -14,6 +14,7 @@ module ActivePostgres
       @version = env_config['version'] || 18
       @user = env_config['user'] || 'ubuntu'
       @ssh_key = File.expand_path(env_config['ssh_key'] || '~/.ssh/id_rsa')
+      @ssh_known_hosts_file = optional_path(env_config['ssh_known_hosts_file'])
       @ssh_host_key_verification = normalize_ssh_host_key_verification(
         env_config['ssh_host_key_verification'] || env_config['ssh_verify_host_key']
       )
@@ -21,6 +22,7 @@ module ActivePostgres
       @primary = env_config['primary'] || {}
       @standbys = env_config['standby'] || []
       @standbys = [@standbys] unless @standbys.is_a?(Array)
+      @jump_hosts = env_config['jump_hosts'] || {}
 
       @components = parse_components(env_config['components'] || {})
       @secrets_config = env_config['secrets'] || {}
@@ -111,6 +113,24 @@ module ActivePostgres
       @standbys.find { |s| s['host'] == host }
     end
 
+    def node_config_for(host)
+      return @primary if host == primary_host
+
+      standby_config_for(host)
+    end
+
+    def jump_host_config_for(host)
+      jump_host_name = node_config_for(host)&.dig('jump_host')
+      return unless jump_host_name
+
+      @jump_hosts[jump_host_name] || raise(Error, "Host #{host} jump_host not found: #{jump_host_name}")
+    end
+
+    def repmgr_config_for(host)
+      overrides = node_config_for(host)&.dig('repmgr') || {}
+      component_config(:repmgr).merge(symbolize_keys(overrides))
+    end
+
     def node_label_for(host)
       if host == primary_host
         @primary['label']
@@ -147,6 +167,15 @@ module ActivePostgres
           host = app_host['host'] || app_host[:host]
           raise Error, 'pgbouncer.app_hosts entries must include host' if host.to_s.strip.empty?
         end
+      end
+
+      all_hosts.each do |host|
+        jump_host_name = node_config_for(host)&.dig('jump_host')
+        next unless jump_host_name
+
+        jump_host = @jump_hosts[jump_host_name]
+        raise Error, "Host #{host} jump_host not found: #{jump_host_name}" unless jump_host
+        raise Error, "Jump host #{jump_host_name} must include host" if jump_host['host'].to_s.strip.empty?
       end
 
       if component_enabled?(:repmgr)
@@ -246,12 +275,6 @@ module ActivePostgres
       result
     end
 
-    def node_config_for(host)
-      return @primary if host == primary_host
-
-      standby_config_for(host)
-    end
-
     def private_ip_for(node_config)
       return unless node_config
 
@@ -294,6 +317,10 @@ module ActivePostgres
 
       raise Error,
             "Invalid ssh_host_key_verification '#{value}'. Use 'always' or 'accept_new'."
+    end
+
+    def optional_path(path)
+      File.expand_path(path) if path
     end
   end
 end

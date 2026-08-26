@@ -1,6 +1,8 @@
 require 'sshkit'
 require 'sshkit/dsl'
+require 'net/ssh/proxy/command'
 require 'securerandom'
+require 'shellwords'
 require 'stringio'
 
 module ActivePostgres
@@ -20,11 +22,11 @@ module ActivePostgres
     end
 
     def execute_on_host(host, &)
-      on("#{config.user}@#{host}", &)
+      on(ssh_host_for(host), &)
     end
 
     def execute_on_host_as(host, user, &)
-      on("#{user}@#{host}", &)
+      on(ssh_host_for(host, user:), &)
     end
 
     def execute_on_primary(&)
@@ -32,12 +34,12 @@ module ActivePostgres
     end
 
     def execute_on_standbys(&)
-      hosts = config.standby_hosts.map { |h| "#{config.user}@#{h}" }
+      hosts = config.standby_hosts.map { |host| ssh_host_for(host) }
       on(hosts, in: :parallel, &)
     end
 
     def execute_on_all_hosts(&)
-      hosts = config.all_hosts.map { |h| "#{config.user}@#{h}" }
+      hosts = config.all_hosts.map { |host| ssh_host_for(host) }
       on(hosts, in: :parallel, &)
     end
 
@@ -307,6 +309,8 @@ module ActivePostgres
           number_of_password_prompts: 0
         }
 
+        options[:user_known_hosts_file] = [config.ssh_known_hosts_file] if config.ssh_known_hosts_file
+
         if config.ssh_key && File.exist?(config.ssh_key)
           options[:keys] = [config.ssh_key]
           options[:keys_only] = true
@@ -314,6 +318,59 @@ module ActivePostgres
 
         ssh.ssh_options = options
       end
+    end
+
+    def ssh_host_for(host, user: config.user)
+      ssh_host = SSHKit::Host.new(host)
+      ssh_host.user = user
+
+      node_config = config.node_config_for(host) || {}
+      ssh_host.port = node_config['ssh_port'] || node_config['port'] if node_config['ssh_port'] || node_config['port']
+
+      options = {
+        verify_host_key: config.ssh_host_key_verification || :always
+      }
+      options[:user_known_hosts_file] = [config.ssh_known_hosts_file] if config.ssh_known_hosts_file
+
+      if node_config['ssh_key']
+        options[:keys] = [File.expand_path(node_config['ssh_key'])]
+        options[:keys_only] = true
+      end
+
+      if (jump_host_config = config.jump_host_config_for(host))
+        options[:proxy] = jump_proxy(jump_host_config)
+      end
+
+      ssh_host.ssh_options = options
+      ssh_host
+    end
+
+    def jump_proxy(jump_host_config)
+      jump_user = jump_host_config['ssh_user'] || jump_host_config['user'] || config.user
+      jump_port = jump_host_config['ssh_port'] || jump_host_config['port']
+      jump_key = jump_host_config['ssh_key'] || config.ssh_key
+      command = [
+        'ssh',
+        '-F', '/dev/null',
+        '-o', 'BatchMode=yes',
+        '-o', 'ForwardAgent=no',
+        '-o', "StrictHostKeyChecking=#{open_ssh_host_key_mode}"
+      ]
+
+      command.push('-o', "UserKnownHostsFile=#{config.ssh_known_hosts_file}") if config.ssh_known_hosts_file
+
+      command.push('-i', File.expand_path(jump_key), '-o', 'IdentitiesOnly=yes') if
+        jump_key && File.exist?(File.expand_path(jump_key))
+
+      command.push('-p', jump_port.to_s) if jump_port
+      command.push('-W', '%h:%p', "#{jump_user}@#{jump_host_config.fetch('host')}")
+
+      command_line = Shellwords.join(command).gsub('\\%h', '%h').gsub('\\%p', '%p')
+      Net::SSH::Proxy::Command.new(command_line)
+    end
+
+    def open_ssh_host_key_mode
+      config.ssh_host_key_verification == :accept_new ? 'accept-new' : 'yes'
     end
   end
 end
