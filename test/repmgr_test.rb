@@ -49,6 +49,26 @@ class RepmgrTest < Minitest::Test
     assert_equal 'host=10.0.0.10 user=repl_user dbname=replication application_name=standby-node', conninfo
   end
 
+  def test_manual_failover_policy_disables_repmgrd
+    commands = []
+    backend = Object.new
+    backend.define_singleton_method(:execute) do |*args, **options|
+      commands << [args, options]
+    end
+
+    executor = Object.new
+    executor.define_singleton_method(:execute_on_host) do |_host, &block|
+      backend.instance_exec(&block)
+    end
+
+    component = ActivePostgres::Components::Repmgr.new(@config, executor, @secrets)
+    component.send(:enable_repmgrd_if_configured, 'standby.example.com', auto_failover: false)
+
+    assert_equal [
+      [[:sudo, 'systemctl', 'disable', '--now', 'repmgrd'], { raise_on_non_zero_exit: false }]
+    ], commands
+  end
+
   def test_normalize_dns_servers_handles_hash_and_string
     raw = [
       { 'host' => 'public.example.com', 'private_ip' => '10.0.0.10' },

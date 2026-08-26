@@ -7,6 +7,11 @@ and this project follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+### Added
+
+- Support strict operator SSH through declared jump hosts.
+- Allow a standby to override repmgr failover and priority policy.
+
 ## 0.9.6 - 2026-08-20
 
 ### Changed
