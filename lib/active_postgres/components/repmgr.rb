@@ -1121,7 +1121,8 @@ module ActivePostgres
       def enable_repmgrd_if_configured(host, repmgr_config)
         if repmgr_config[:auto_failover] == false
           ssh_executor.execute_on_host(host) do
-            execute :sudo, 'systemctl', 'disable', '--now', 'repmgrd', raise_on_non_zero_exit: false
+            execute :sudo, 'systemctl', 'stop', 'repmgrd', raise_on_non_zero_exit: false
+            execute :sudo, 'systemctl', 'disable', 'repmgrd', raise_on_non_zero_exit: false
           end
           return
         end
