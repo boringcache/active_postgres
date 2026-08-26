@@ -921,7 +921,7 @@ module ActivePostgres
 
         [
           :sudo, '-u', config.postgres_user,
-          :bash, '-lc', command
+          :bash, '-lc', Shellwords.escape(command)
         ]
       end
 
