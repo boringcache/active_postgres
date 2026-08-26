@@ -15,6 +15,8 @@ and this project follows [Semantic Versioning](https://semver.org/).
 - Make deployment-flow `--dry-run` stop before confirmation or mutation.
 - Fail standby setup before mutation when required credentials do not resolve.
 - Scope standby rollback to the requested host and keep existing cluster nodes intact.
+- Preserve pgBackRest recovery options as one shell-safe argument during remote restore.
+- Run component rollback in local Ruby context instead of an SSHKit backend scope.
 
 ## 0.9.6 - 2026-08-20
 

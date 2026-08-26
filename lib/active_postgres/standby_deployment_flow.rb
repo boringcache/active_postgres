@@ -119,14 +119,17 @@ module ActivePostgres
     end
 
     def register_rollback(component_name, component)
-      rollback_manager.register("Uninstall #{component_name} on #{standby_host}", host: standby_host) do
+      target_host = standby_host
+      captured_logger = logger
+
+      rollback_manager.register("Uninstall #{component_name} on #{target_host}") do
         if component.respond_to?(:uninstall_from)
-          component.uninstall_from(standby_host)
+          component.uninstall_from(target_host)
         else
           component.uninstall
         end
       rescue StandardError => e
-        logger.warn "Failed to uninstall #{component_name} on #{standby_host}: #{e.message}"
+        captured_logger.warn "Failed to uninstall #{component_name} on #{target_host}: #{e.message}"
       end
     end
 
