@@ -35,13 +35,16 @@ class PgBackRestTest < Minitest::Test
     schedules = component.send(:backup_schedules, {
                                  schedule: '0 2 * * *',
                                  schedule_full: '0 3 * * *',
+                                 schedule_differential: '30 3 * * 1-6',
                                  schedule_incremental: '0 * * * *'
                                })
 
     full = schedules.find { |entry| entry[:type] == 'full' }
+    differential = schedules.find { |entry| entry[:type] == 'diff' }
     incremental = schedules.find { |entry| entry[:type] == 'incr' }
 
     assert_equal '0 3 * * *', full[:schedule]
+    assert_equal '30 3 * * 1-6', differential[:schedule]
     assert_equal '0 * * * *', incremental[:schedule]
   end
 
@@ -61,12 +64,14 @@ class PgBackRestTest < Minitest::Test
 
     component.send(:setup_backup_schedules, 'primary.example.com', {
                      schedule_full: '0 2 * * *',
+                     schedule_differential: '30 2 * * 1-6',
                      schedule_incremental: '0 * * * *'
                    })
 
     assert_equal [:remove, 'primary.example.com'], calls.first
     assert_equal [:schedule, 'primary.example.com', '0 2 * * *', 'full', '/etc/cron.d/pgbackrest-backup'], calls[1]
-    assert_equal [:schedule, 'primary.example.com', '0 * * * *', 'incr', '/etc/cron.d/pgbackrest-backup-incremental'], calls[2]
+    assert_equal [:schedule, 'primary.example.com', '30 2 * * 1-6', 'diff', '/etc/cron.d/pgbackrest-backup-differential'], calls[2]
+    assert_equal [:schedule, 'primary.example.com', '0 * * * *', 'incr', '/etc/cron.d/pgbackrest-backup-incremental'], calls[3]
   end
 
   def test_setup_backup_schedule_uses_backup_type
