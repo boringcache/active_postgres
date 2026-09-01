@@ -26,6 +26,7 @@ module ActivePostgres
           ssh_executor.execute_on_host(host) do
             execute :sudo, 'apt-get', 'remove', '-y', 'pgbackrest'
             execute :sudo, 'rm', '-f', '/etc/cron.d/pgbackrest-backup'
+            execute :sudo, 'rm', '-f', '/etc/cron.d/pgbackrest-backup-differential'
             execute :sudo, 'rm', '-f', '/etc/cron.d/pgbackrest-backup-incremental'
             execute :sudo, 'rm', '-f', LOG_ARCHIVE_CRON_FILE
             execute :sudo, 'rm', '-f', LOG_ARCHIVE_ENV_FILE
@@ -162,10 +163,12 @@ module ActivePostgres
 
       def backup_schedules(pgbackrest_config)
         schedule_full = pgbackrest_config[:schedule_full] || pgbackrest_config[:schedule]
+        schedule_differential = pgbackrest_config[:schedule_differential]
         schedule_incremental = pgbackrest_config[:schedule_incremental]
 
         schedules = []
         schedules << { type: 'full', schedule: schedule_full, file: '/etc/cron.d/pgbackrest-backup' } if schedule_full
+        schedules << { type: 'diff', schedule: schedule_differential, file: '/etc/cron.d/pgbackrest-backup-differential' } if schedule_differential
         schedules << { type: 'incr', schedule: schedule_incremental, file: '/etc/cron.d/pgbackrest-backup-incremental' } if schedule_incremental
 
         schedules
@@ -192,6 +195,7 @@ module ActivePostgres
       def remove_backup_schedule(host)
         ssh_executor.execute_on_host(host) do
           execute :sudo, 'rm', '-f', '/etc/cron.d/pgbackrest-backup'
+          execute :sudo, 'rm', '-f', '/etc/cron.d/pgbackrest-backup-differential'
           execute :sudo, 'rm', '-f', '/etc/cron.d/pgbackrest-backup-incremental'
         end
       end

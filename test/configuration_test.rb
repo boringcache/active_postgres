@@ -170,6 +170,34 @@ class ConfigurationTest < Minitest::Test
     assert config.validate!
   end
 
+  def test_pgbackrest_block_backups_require_bundling
+    config = build_config(
+      'components' => {
+        'pgbackrest' => {
+          'enabled' => true,
+          'repo_block' => true
+        }
+      }
+    )
+
+    error = assert_raises(ActivePostgres::Error) { config.validate! }
+    assert_match(/repo_block requires repo_bundle/i, error.message)
+  end
+
+  def test_pgbackrest_block_backups_accept_bundling
+    config = build_config(
+      'components' => {
+        'pgbackrest' => {
+          'enabled' => true,
+          'repo_bundle' => true,
+          'repo_block' => true
+        }
+      }
+    )
+
+    assert config.validate!
+  end
+
   def test_standby_config_for_returns_standby_hash
     config = build_config(
       'standby' => [

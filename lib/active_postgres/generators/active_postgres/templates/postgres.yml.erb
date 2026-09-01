@@ -57,6 +57,13 @@ shared: &shared
     
     pgbackrest:
       enabled: false
+      # For large, frequently changed relation files, bundle repository objects
+      # and back up changed blocks instead of copying each whole file.
+      # repo_bundle: true
+      # repo_block: true
+      # schedule_full: "0 2 * * 0"
+      # schedule_differential: "35 2 * * 1-6"
+      # schedule_incremental: "5 */4 * * *"
     
     monitoring:
       enabled: false

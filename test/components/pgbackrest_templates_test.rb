@@ -77,6 +77,20 @@ class PgBackRestTemplatesTest < Minitest::Test
     assert_includes content, 'repo1-retention-archive=14'
   end
 
+  def test_conf_enables_bundled_block_incremental_backups
+    content = render_conf(repo_type: 'local', repo_bundle: true, repo_block: true)
+
+    assert_includes content, 'repo1-bundle=y'
+    assert_includes content, 'repo1-block=y'
+  end
+
+  def test_conf_leaves_bundled_block_incremental_backups_disabled_by_default
+    content = render_conf(repo_type: 'local')
+
+    refute_includes content, 'repo1-bundle='
+    refute_includes content, 'repo1-block='
+  end
+
   def test_conf_includes_compression
     content = render_conf(repo_type: 'local')
 

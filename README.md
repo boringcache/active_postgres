@@ -199,8 +199,13 @@ components:
   pgbackrest:
     retention_full: 7
     retention_archive: 14
-    # You can schedule full + incremental separately:
-    # schedule_full: "0 2 * * *"
+    # Reduce incremental backup churn for large, frequently changed relations.
+    # Block backups require repository bundling.
+    repo_bundle: true
+    repo_block: true
+    # You can schedule full, differential, and incremental backups separately:
+    # schedule_full: "0 2 * * 0"
+    # schedule_differential: "35 2 * * 1-6"
     # schedule_incremental: "0 * * * *"
 ```
 

@@ -1,8 +1,10 @@
 require 'yaml'
+require_relative 'configuration/pgbackrest_policy'
 require_relative 'configuration/standby_policy'
 
 module ActivePostgres
   class Configuration
+    include PgBackRestPolicy
     include StandbyPolicy
 
     attr_reader :environment, :version, :user, :ssh_key, :ssh_known_hosts_file, :ssh_host_key_verification,
@@ -156,14 +158,7 @@ module ActivePostgres
           raise Error, 'monitoring.grafana.host is required when grafana is enabled'
         end
       end
-      if component_enabled?(:pgbackrest)
-        pg_config = component_config(:pgbackrest)
-        retention_full = pg_config[:retention_full]
-        retention_archive = pg_config[:retention_archive]
-        if retention_full && retention_archive && retention_archive.to_i < retention_full.to_i
-          raise Error, 'pgbackrest.retention_archive must be >= retention_full for PITR safety'
-        end
-      end
+      validate_pgbackrest!
 
       if component_enabled?(:pgbouncer)
         pgbouncer_app_hosts.each do |app_host|
