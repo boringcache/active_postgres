@@ -7,6 +7,8 @@ and this project follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+## 0.9.7 - 2026-09-01
+
 ### Added
 
 - Support strict operator SSH through declared jump hosts.
@@ -19,6 +21,8 @@ and this project follows [Semantic Versioning](https://semver.org/).
 - Preserve the complete pgBackRest command as the single `bash -lc` command string.
 - Run component rollback in local Ruby context instead of an SSHKit backend scope.
 - Explicitly stop SysV-backed repmgrd before disabling it on manual-failover standbys.
+- Support opt-in bundled block backups for large, frequently changed PostgreSQL relations.
+- Support independent full, differential, and incremental pgBackRest schedules.
 
 ## 0.9.6 - 2026-08-20
 
