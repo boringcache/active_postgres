@@ -154,7 +154,7 @@ GEM
       prism (~> 1.7)
     ruby-progressbar (1.13.0)
     securerandom (0.4.1)
-    simplecov (1.1.1)
+    simplecov (1.2.0)
     sshkit (1.25.1)
       base64
       logger
@@ -186,7 +186,7 @@ DEPENDENCIES
   minitest-mock (~> 5.27)
   rake (~> 13.4)
   rubocop (~> 1.90)
-  simplecov (~> 1.1)
+  simplecov (~> 1.2)
 
 RUBY VERSION
   ruby 4.0.6p0
