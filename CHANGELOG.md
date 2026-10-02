@@ -7,6 +7,8 @@ and this project follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+## 0.9.9 - 2026-10-02
+
 ### Fixed
 
 - Install and enable cron for pgBackRest backup and PostgreSQL log-archive schedules, and fail setup if the scheduler is not active.
