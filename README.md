@@ -215,6 +215,10 @@ components:
     # schedule_incremental: "0 * * * *"
 ```
 
+pgBackRest setup installs cron, enables it at boot, and checks that it is active.
+Backup schedules run only on the primary; configured log-archive schedules run
+on each database host.
+
 Run a PITR restore:
 
 ```bash

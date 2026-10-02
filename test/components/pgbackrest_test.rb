@@ -288,6 +288,7 @@ class PgBackRestTest < Minitest::Test
 
     ssh_executor = Minitest::Mock.new
     ssh_executor.expect(:execute_on_host, nil, ['standby.example.com'])
+    ssh_executor.expect(:execute_on_host, nil, ['standby.example.com'])
     secrets = ActivePostgres::Secrets.new(config)
     pgbackrest = ActivePostgres::Components::PgBackRest.new(config, ssh_executor, secrets)
     calls = []
