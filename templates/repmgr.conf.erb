@@ -9,7 +9,7 @@
     end
   end
 %>
-node_id=<%= host == config.primary_host ? 1 : config.standby_hosts.index(host) + 2 %>
+node_id=<%= config.node_id_for(host) %>
 node_name='<%= node_label %>'
 <%
   # conninfo describes how OTHER nodes connect to THIS node

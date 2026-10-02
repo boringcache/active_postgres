@@ -118,6 +118,11 @@ module TestHelpers
       end
     end
 
+    def node_id_for(host)
+      node = host == primary_host ? primary : standby_config_for(host)
+      node.fetch('node_id') { host == primary_host ? 1 : standby_hosts.index(host) + 2 }
+    end
+
     private
 
     def evaluate_override(override, arg)

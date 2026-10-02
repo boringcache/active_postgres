@@ -28,7 +28,7 @@ module ActivePostgres
       end
 
       def uninstall_from(host)
-        node_id = host == config.primary_host ? 1 : (config.standby_hosts.index(host) || 997) + 2
+        node_id = config.node_id_for(host)
 
         ssh_executor.execute_on_host(host) do
           cluster_output = begin
@@ -98,6 +98,7 @@ module ActivePostgres
         puts '  Setting up primary with repmgr...'
 
         host = config.primary_host
+        primary_node_id = config.node_id_for(host)
         repmgr_config = config.repmgr_config_for(host)
         version = config.version
         repmgr_password = normalize_repmgr_password(secrets.resolve('repmgr_password'))
@@ -208,7 +209,7 @@ module ActivePostgres
           unless cluster_show&.match?(/primary/i)
             # Fallback: verify via repmgr metadata in the repmgr database
             db_check = executor.run_sql_on_backend(self,
-                                                   'SELECT type FROM repmgr.nodes WHERE node_id = 1;',
+                                                   "SELECT type FROM repmgr.nodes WHERE node_id = #{primary_node_id};",
                                                    postgres_user: 'postgres',
                                                    database: repmgr_db,
                                                    tuples_only: true,
@@ -250,7 +251,7 @@ module ActivePostgres
         _ = repmgr_config
         _ = secrets_obj
 
-        node_id = config.standby_hosts.index(standby_host) + 2
+        node_id = config.node_id_for(standby_host)
         repmgr_password = normalize_repmgr_password(secrets_obj.resolve('repmgr_password'))
         replication_password = normalize_replication_password(secrets_obj.resolve('replication_password'))
         if replication_user == repmgr_user && replication_password != repmgr_password
@@ -679,6 +680,7 @@ module ActivePostgres
         puts 'Verifying PostgreSQL HA cluster health...'
 
         primary_host = config.primary_host
+        primary_node_id = config.node_id_for(primary_host)
         standby_hosts = config.standby_hosts
         version = config.version
         postgres_user = config.postgres_user
@@ -709,12 +711,12 @@ module ActivePostgres
           cluster_output = capture(:sudo, '-u', 'postgres',
                                    'repmgr', '-f', '/etc/repmgr.conf', 'cluster', 'show',
                                    raise_on_non_zero_exit: false).to_s
-          # Primary always has node_id=1, check if it's registered and running
-          if cluster_output.match?(/\s+1\s+\|.*primary.*\*\s+running/i)
+          # Check the configured node identity, which survives role changes.
+          if cluster_output.match?(/\s+#{primary_node_id}\s+\|.*primary.*\*\s+running/i)
             info '✓ Primary is registered with repmgr'
           else
             db_check = executor.run_sql_on_backend(self,
-                                                   'SELECT type FROM repmgr.nodes WHERE node_id = 1 AND active IS TRUE;',
+                                                   "SELECT type FROM repmgr.nodes WHERE node_id = #{primary_node_id} AND active IS TRUE;",
                                                    postgres_user: postgres_user,
                                                    database: repmgr_db,
                                                    tuples_only: true,
@@ -951,7 +953,7 @@ module ActivePostgres
 
       def ensure_primary_registered
         host = config.primary_host
-        config.version
+        primary_node_id = config.node_id_for(host)
         is_registered = false
 
         ssh_executor.execute_on_host(host) do
@@ -965,8 +967,8 @@ module ActivePostgres
             ''
           end
 
-          if cluster_output.include?('| 1') && cluster_output.include?('primary')
-            info '✓ Primary is registered (node_id=1)'
+          if cluster_output.match?(/\b#{primary_node_id}\s+\|.*primary/)
+            info "✓ Primary is registered (node_id=#{primary_node_id})"
           else
             warn "⚠ Primary not found in cluster, assuming it's registered"
           end

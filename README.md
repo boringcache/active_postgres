@@ -76,6 +76,12 @@ manual-promotion while the ordinary standby retains automatic failover.
 settings before repmgr registration, avoiding a full base-backup stream from
 the primary. The `pgbackrest` component must be enabled.
 
+Set a unique positive integer `node_id` on every primary and standby entry
+before permanently changing their roles or reordering standbys. Match the
+existing IDs in `repmgr cluster show`, and keep each ID with its host after a
+switchover. Without explicit IDs, the primary defaults to 1 and standbys use
+their list position starting at 2. Duplicate or invalid IDs are rejected.
+
 Add credentials (`rails credentials:edit`):
 
 ```yaml

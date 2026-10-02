@@ -36,6 +36,14 @@ class RepmgrTemplatesTest < Minitest::Test
     assert_includes content, "conninfo='host=10.0.0.10 user=repmgr dbname=repmgr connect_timeout=2'"
   end
 
+  def test_conf_preserves_explicit_node_ids_after_role_change
+    @config.primary['node_id'] = 3
+    @config.standbys.first['node_id'] = 1
+
+    assert_includes render_conf({}, host: 'primary.example.com'), 'node_id=3'
+    assert_includes render_conf({}, host: 'standby.example.com'), 'node_id=1'
+  end
+
   def test_conf_sets_automatic_failover_by_default
     content = render_conf({}, host: 'primary.example.com')
 
