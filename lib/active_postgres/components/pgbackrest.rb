@@ -151,6 +151,16 @@ module ActivePostgres
         else
           remove_backup_schedule(host)
         end
+
+        ensure_scheduler(host)
+      end
+
+      def ensure_scheduler(host)
+        install_apt_packages(host, 'cron')
+        ssh_executor.execute_on_host(host) do
+          execute :sudo, 'systemctl', 'enable', '--now', 'cron'
+          execute :sudo, 'systemctl', 'is-active', '--quiet', 'cron'
+        end
       end
 
       def setup_backup_schedules(host, pgbackrest_config)
