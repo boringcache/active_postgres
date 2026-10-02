@@ -1,11 +1,13 @@
 require 'yaml'
 require_relative 'configuration/pgbackrest_policy'
 require_relative 'configuration/standby_policy'
+require_relative 'configuration/node_identity'
 
 module ActivePostgres
   class Configuration
     include PgBackRestPolicy
     include StandbyPolicy
+    include NodeIdentity
 
     attr_reader :environment, :version, :user, :ssh_key, :ssh_known_hosts_file, :ssh_host_key_verification,
                 :primary, :standbys, :jump_hosts, :components, :secrets_config, :database_config
@@ -146,6 +148,8 @@ module ActivePostgres
 
     def validate!
       raise Error, 'No primary host defined' unless primary_host
+
+      validate_node_ids!
 
       # Validate required secrets if components are enabled
       raise Error, 'Missing replication_password secret' if component_enabled?(:repmgr) && !secrets_config['replication_password']

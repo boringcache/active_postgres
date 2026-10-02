@@ -7,6 +7,13 @@ and this project follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+## 0.9.8 - 2026-10-02
+
+### Fixed
+
+- Support explicit node IDs so repmgr identities survive primary changes and standby reordering.
+- Reject duplicate or invalid node IDs before deployment.
+
 ## 0.9.7 - 2026-09-01
 
 ### Added
