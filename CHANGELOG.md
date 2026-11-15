@@ -7,6 +7,13 @@ and this project follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+## 0.9.10 - 2026-11-15
+
+### Fixed
+
+- Remove deprecated `stop-auto` from generated pgBackRest configuration. Keep `start-fast` and the existing backup schedules and retention.
+- Update the development lockfile to patched Rails, Rack, XML parser and HTML sanitizer releases.
+
 ## 0.9.9 - 2026-10-02
 
 ### Fixed

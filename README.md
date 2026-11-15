@@ -13,6 +13,11 @@ capacity planning, monitoring, backups, recovery drills, and failover decisions.
 - **Rails Integration**: Automatic database.yml config, migration guard, read replica routing
 - **Modular Components**: Core, Performance Tuning (opt-in), repmgr, PgBouncer, pgBackRest, Monitoring, SSL, Extensions
 
+Version 0.9.10 removes deprecated `stop-auto` from generated pgBackRest
+configuration. Existing installations can remove that line from their
+pgBackRest configuration without restarting PostgreSQL. Backup schedules,
+retention and `start-fast` remain unchanged.
+
 ## Quick Start
 
 ### 1. Install

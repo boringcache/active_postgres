@@ -131,7 +131,7 @@ class PgBackRestTemplatesTest < Minitest::Test
     content = render_conf(repo_type: 'local')
 
     assert_includes content, 'start-fast=y'
-    assert_includes content, 'stop-auto=y'
+    refute_includes content, 'stop-auto'
   end
 
   def test_conf_includes_logging
