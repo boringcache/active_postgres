@@ -20,11 +20,11 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - name: Set up Ruby
-        uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
+        uses: ruby/setup-ruby@f9c4492e86def3e644ab32a0ef185eda5b0c20d0 # v1.342.0
         with:
           ruby-version: "4.0.6"
           bundler-cache: true
       - name: Verify release
         run: bin/ci
       - name: Publish with RubyGems trusted publishing
-        uses: rubygems/release-gem@7f9650160c1a4e7989fdc9855807bdbd421d8b6b # v1.4.1
+        uses: rubygems/release-gem@5c53f5308233b7c0f47411f0471b3faae6fa57b2 # v1.4.2
